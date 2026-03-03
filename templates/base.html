@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kitsunarr - {% block title %}Dashboard{% endblock %}</title>
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}"/>
+    <link rel="icon" type="image/png" href="{{ url_for('static', path='img/Kitsunarr-logo-32x32.png') }}" />
+  </head>
+  <body class="flex h-screen overflow-hidden bg-[#0d0415]">
+    
+    <div id="toast-container" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-[100] flex flex-col items-center space-y-2 pointer-events-none"></div>
+
+    <aside class="w-64 k-panel flex flex-col rounded-none border-y-0 border-l-0 overflow-y-auto custom-scrollbar shrink-0">
+      <div class="flex flex-col px-4 pt-4 border-b shrink-0 bg-black/20" style="border-color: #452b7a">
+        <img src="{{ url_for('static', path='img/Kitsunarr-logo-512x512.png') }}" alt="Kitsunarr Master Logo" class="w-full h-auto rounded-xl shadow-2xl border-2 border-yellow-500/40 object-cover aspect-square transition-all duration-300 hover:shadow-[0_0_20px_rgba(255,215,0,0.5)]">
+        <span class="text-2xl font-extrabold tracking-widest text-white mt-5 mb-3 text-center uppercase">
+            <span class="text-yellow-400">K</span>ITSU<span class="text-yellow-400">N</span>ARR
+        </span>
+      </div>
+      
+      <nav class="flex-1 py-4 text-sm">
+        <div class="mb-4">
+          <a href="/" class="flex items-center px-6 py-2.5 transition {% if active_page == 'indexers' %}bg-yellow-500/10 border-r-4 border-yellow-500 text-yellow-500 font-bold{% else %}text-gray-400 hover:text-white{% endif %}">
+            <i class="fa-solid fa-play w-6 text-center"></i> Indexadores
+          </a>
+        </div>
+        <div class="mb-4">
+          <div class="px-6 py-1 text-xs uppercase tracking-wider mb-1 font-bold text-purple-400">Ajustes</div>
+          <a href="/ai" class="flex items-center px-6 py-2.5 transition {% if active_page == 'ai' %}bg-yellow-500/10 border-r-4 border-yellow-500 text-yellow-500 font-bold{% else %}text-gray-400 hover:text-white{% endif %}">
+            <i class="fa-solid fa-brain w-6 text-center text-yellow-500"></i> Ajustes IA
+          </a>
+        </div>
+        <div>
+          <div class="px-6 py-1 text-xs uppercase tracking-wider mb-1 font-bold text-purple-400">Sistema</div>
+          <a href="/cache" class="flex items-center px-6 py-2.5 transition {% if active_page == 'cache' %}bg-yellow-500/10 border-r-4 border-yellow-500 text-yellow-500 font-bold{% else %}text-gray-400 hover:text-white{% endif %}">
+            <i class="fa-solid fa-database w-6 text-center"></i> Caché de Torrents
+          </a>
+          <a href="/search" class="flex items-center px-6 py-2.5 transition {% if active_page == 'search' %}bg-yellow-500/10 border-r-4 border-yellow-500 text-yellow-500 font-bold{% else %}text-gray-400 hover:text-white{% endif %}">
+            <i class="fa-solid fa-magnifying-glass w-6 text-center"></i> Búsqueda Interactiva
+          </a>
+          <a href="/config" class="flex items-center px-6 py-2.5 transition {% if active_page == 'config' %}bg-yellow-500/10 border-r-4 border-yellow-500 text-yellow-500 font-bold{% else %}text-gray-400 hover:text-white{% endif %}">
+            <i class="fa-solid fa-gear w-6 text-center"></i> Configuración
+          </a>
+          <a href="/eventos" class="flex items-center px-6 py-2.5 transition {% if active_page == 'events' %}bg-yellow-500/10 border-r-4 border-yellow-500 text-yellow-500 font-bold{% else %}text-gray-400 hover:text-white{% endif %}">
+            <i class="fa-solid fa-terminal w-6 text-center"></i> Eventos
+          </a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
+      <header class="h-16 k-panel rounded-none border-y-0 border-r-0 border-l-0 flex items-center justify-between px-8 border-b shrink-0" style="border-color: #452b7a">
+        <h1 class="text-xl font-bold text-white tracking-wide uppercase">{% block header_title %}DASHBOARD{% endblock %}</h1>
+      </header>
+
+      <div class="p-8 h-full overflow-y-auto custom-scrollbar">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+
+    {% block modals %}{% endblock %}
+
+    <script src="{{ url_for('static', path='js/app.js') }}"></script>
+    
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>

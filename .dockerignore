@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# Configuración sensible
+.env
+
+# Docker / Git
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+
+# Datos locales
+data/
+*.db
+*.log
+*.bak

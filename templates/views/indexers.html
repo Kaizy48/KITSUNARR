@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% set active_page = "indexers" %}
+
+{% block title %}Indexadores{% endblock %}
+{% block header_title %}INDEXADORES{% endblock %}
+
+{% block content %}
+<div class="flex items-center mb-6 space-x-3">
+  <button onclick="openSelectorModal()" class="btn-primary glow-yellow flex items-center">
+    <i class="fa-solid fa-plus mr-2"></i> Añadir Indexador
+  </button>
+</div>
+
+{% if not indexers %}
+<div id="empty-state" class="k-panel p-12 text-center flex flex-col items-center justify-center border-dashed border-2">
+  <i class="fa-solid fa-ghost text-6xl mb-4" style="color: #452b7a"></i>
+  <h2 class="text-xl font-bold mb-2 text-white">No hay indexadores configurados</h2>
+  <p style="color: var(--text-muted)">Añade tu primer indexador para empezar.</p>
+</div>
+{% else %}
+<div id="indexer-table" class="k-panel overflow-hidden">
+  <table class="w-full text-left border-collapse k-table">
+    <thead>
+      <tr>
+        <th class="p-4 font-bold">Nombre del Indexador</th>
+        <th class="p-4 font-bold text-center">Protocolo</th>
+        <th class="p-4 font-bold">Auth</th>
+        <th class="p-4 font-bold text-right">Opciones</th>
+      </tr>
+    </thead>
+    <tbody class="text-sm">
+      {% for idx in indexers %}
+      <tr class="hover:bg-gray-800/30 transition">
+        <td class="p-4 font-medium text-white flex items-center" id="status-icon-{{ idx.identifier }}">
+          {% if idx.status == "ok" %}
+          <i class="fa-solid fa-earth-americas text-green-500 mr-3 text-lg" title="Estado: Online"></i>
+          {% else %}
+          <i class="fa-solid fa-earth-americas text-red-500 mr-3 text-lg" title="Estado: Error / No Conecta"></i>
+          {% endif %} {{ idx.name }}
+        </td>
+        <td class="p-4 text-center">
+          <span class="px-2 py-0.5 rounded text-xs font-bold bg-green-500/10 text-green-500 border border-green-500/30">torznab</span>
+        </td>
+        <td class="p-4 text-gray-400 capitalize">
+          <i class="fa-solid fa-key text-accent mr-1"></i> {{ idx.auth_type }}
+        </td>
+        <td class="p-4 text-right space-x-4">
+          <button onclick="testIndexer('{{ idx.identifier }}', '{{ idx.name }}')" class="hover:text-white transition" title="Test (Ping Real)">
+            <i class="fa-solid fa-vial"></i>
+          </button>
+          <button onclick="openConfigModal()" class="transition text-yellow-500 hover:text-white" title="Configurar">
+            <i class="fa-solid fa-wrench"></i>
+          </button>
+          <button onclick="deleteIndexer('{{ idx.identifier }}')" class="transition text-red-500 hover:text-red-400" title="Eliminar Indexador">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block modals %}
+    {% include 'components/modal_indexer.html' %}
+{% endblock %}

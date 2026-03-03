@@ -1,0 +1,52 @@
+{# ========================================== #}
+{# COMPONENTES: MODALES DE INDEXADORES        #}
+{# ========================================== #}
+
+<div id="selectorModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+  <div class="k-panel w-full max-w-3xl overflow-hidden shadow-2xl">
+      <div class="px-6 py-4 flex justify-between items-center border-b" style="border-color: #452b7a">
+          <h2 class="text-lg font-bold text-white">Seleccionar Indexador</h2>
+          <button onclick="closeModals()" class="hover:text-white transition" style="color: var(--text-muted)"><i class="fa-solid fa-xmark text-xl"></i></button>
+      </div>
+      <div class="p-6">
+          <div class="grid grid-cols-2 gap-4">
+              <div onclick="openConfigModal()" class="k-panel p-4 cursor-pointer hover:border-yellow-500 transition group border">
+                  <div class="flex items-center justify-between mb-2">
+                      <h3 class="font-bold text-white group-hover:text-yellow-400 transition">Union Fansub</h3>
+                  </div>
+              </div>
+          </div>
+      </div>
+  </div>
+</div>
+
+<div id="configModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+  <div class="k-panel w-full max-w-2xl overflow-hidden shadow-2xl glow-yellow">
+      <div class="px-6 py-4 flex justify-between items-center border-b" style="border-color: #452b7a">
+          <h2 class="text-lg font-bold text-white">Configurar: Union Fansub</h2>
+          <button onclick="closeModals()" class="hover:text-white transition" style="color: var(--text-muted)"><i class="fa-solid fa-xmark text-xl"></i></button>
+      </div>
+      <div class="p-6 space-y-6">
+          <input type="hidden" id="auth_type_input" value="cookie" />
+          
+          <div class="flex rounded-lg p-1 border bg-black" style="border-color: #452b7a">
+              <button onclick="switchTab('cookie')" id="tab-cookie" class="flex-1 py-2 text-sm font-bold text-black" style="background-color: var(--accent-yellow)">Cookie</button>
+              <button onclick="switchTab('login')" id="tab-login" class="flex-1 py-2 text-sm font-medium text-gray-400">Auto-Login</button>
+              <button class="flex-1 py-2 text-sm font-medium text-gray-600 cursor-not-allowed" title="No soportado por este tracker">API (Próximamente)</button>
+          </div>
+          
+          <div id="form-cookie" class="space-y-4">
+              <input type="text" id="cookie_val" placeholder="Pega tu cookie aquí..." class="w-full bg-black border rounded p-2.5 text-white outline-none font-mono text-sm" style="border-color: #452b7a" />
+          </div>
+          
+          <div id="form-login" class="space-y-4 hidden">
+              <input type="text" id="user_val" placeholder="Usuario" class="w-full bg-black border rounded p-2.5 text-white outline-none mb-2" style="border-color: #452b7a" />
+              <input type="password" id="pass_val" placeholder="Contraseña" class="w-full bg-black border rounded p-2.5 text-white outline-none" style="border-color: #452b7a" />
+          </div>
+      </div>
+      <div class="px-6 py-4 flex justify-end space-x-3 border-t bg-black" style="border-color: #452b7a">
+          <button onclick="closeModals()" class="px-4 py-2 text-gray-400 hover:text-white">Cancelar</button>
+          <button onclick="saveIndexer()" class="btn-primary glow-yellow" id="saveBtn">Guardar y Probar</button>
+      </div>
+  </div>
+</div>

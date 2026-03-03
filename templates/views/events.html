@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% set active_page = "events" %}
+
+{% block title %}Eventos{% endblock %}
+{% block header_title %}EVENTOS DE SISTEMA{% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-white"><i class="fa-solid fa-terminal mr-2" style="color: var(--accent-yellow)"></i> Consola de Eventos</h2>
+        <div class="flex items-center space-x-4">
+            <span style="color: var(--text-muted)" class="text-xs"><i class="fa-solid fa-rotate fa-spin mr-1"></i> Auto-refresco: 5s</span>
+            <div class="flex items-center space-x-2">
+                <button onclick="clearLogs()" class="px-3 py-1 bg-black text-red-500 rounded border border-gray-600 transition text-sm hover:border-red-500" title="Vaciar Eventos">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+                <button onclick="fetchLogs()" class="px-3 py-1 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500">
+                    <i class="fa-solid fa-arrows-rotate mr-1"></i> Actualizar
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="k-panel p-4 flex-1 overflow-hidden">
+        <pre id="log-console" class="w-full h-full overflow-y-auto text-xs text-gray-300 font-mono bg-black p-4 rounded border border-gray-800 custom-scrollbar whitespace-pre-wrap">Cargando eventos...</pre>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Al cargar la vista, iniciamos la escucha de logs
+    document.addEventListener("DOMContentLoaded", () => {
+        fetchLogs(); 
+        logInterval = setInterval(fetchLogs, 5000); 
+    });
+</script>
+{% endblock %}
