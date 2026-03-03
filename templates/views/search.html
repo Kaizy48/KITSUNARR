@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% set active_page = "search" %}
+
+{% block title %}Búsqueda Interactiva{% endblock %}
+{% block header_title %}BÚSQUEDA INTERACTIVA{% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col">
+    <div class="k-panel p-6 mb-6">
+        <h2 class="text-xl font-bold text-white mb-4"><i class="fa-solid fa-magnifying-glass text-yellow-500 mr-2"></i> Búsqueda Interactiva</h2>
+        
+        <div class="flex space-x-4 mb-4">
+            <input type="text" id="interactiveSearchInput" onkeydown="if(event.key === 'Enter') runInteractiveSearch()" placeholder="Escribe el nombre del anime..." class="flex-1 bg-black border border-gray-700 rounded p-3 text-white outline-none focus:border-yellow-500 transition">
+            <button onclick="runInteractiveSearch()" id="btn_run_search" class="btn-primary glow-yellow px-8">
+                <i class="fa-solid fa-search mr-2"></i> Buscar en Foro
+            </button>
+        </div>
+
+        <div id="search_progress_container" class="hidden mt-2">
+            <div class="flex justify-between text-xs mb-1">
+                <span class="text-yellow-500 font-bold" id="search_status_text">Iniciando búsqueda...</span>
+                <span class="text-gray-400" id="search_percentage">0%</span>
+            </div>
+            <div class="w-full bg-gray-800 rounded-full h-2.5 overflow-hidden">
+                <div id="search_progress_bar" class="bg-yellow-500 h-2.5 rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="k-panel overflow-y-auto flex-1 custom-scrollbar">
+        <table class="w-full text-left border-collapse k-table">
+            <thead class="sticky top-0 z-10 bg-[#150824] shadow-md">
+                <tr>
+                    <th class="p-3 font-bold text-xs w-16 text-center">ID</th>
+                    <th class="p-3 font-bold text-xs">Resultado / Fansub</th>
+                    <th class="p-3 font-bold text-xs text-center">Estado IA / TVDB</th>
+                    <th class="p-3 font-bold text-xs text-right">Opciones</th>
+                </tr>
+            </thead>
+            <tbody id="search-results-tbody" class="text-sm">
+                <tr><td colspan="4" class="p-8 text-center text-gray-500">Realiza una búsqueda para ver resultados.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+    {# Inyectamos el componente del modal de información #}
+    {% include 'components/modal_info.html' %}
+{% endblock %}

@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlmodel
+jinja2
+python-dotenv
+httpx
+beautifulsoup4
+lxml
+python-multipart

@@ -1,0 +1,60 @@
+/* Paleta de colores KITSUNARR */
+:root {
+    --bg-deep-purple: #1a0b2e; /* Fondo principal morado muy oscuro */
+    --bg-card-purple: #2d1b4e; /* Fondo de las tarjetas/paneles */
+    --accent-yellow: #ffd700;  /* Amarillo/Dorado vibrante */
+    --text-white: #ffffff;
+    --text-muted: #b3a7c9;     /* Blanco apagado para textos secundarios */
+}
+
+body {
+    background-color: var(--bg-deep-purple);
+    color: var(--text-white);
+    font-family: 'Consolas', 'Courier New', Courier, monospace; 
+}
+
+/* El resplandor (sombra) amarillo que pedías */
+.glow-yellow {
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+    border: 1px solid rgba(255, 215, 0, 0.6);
+}
+
+.glow-yellow:hover {
+    box-shadow: 0 0 25px rgba(255, 215, 0, 0.6);
+    border: 1px solid var(--accent-yellow);
+}
+
+/* Paneles y tarjetas */
+.k-panel {
+    background-color: var(--bg-card-purple);
+    border: 1px solid #452b7a;
+    border-radius: 8px;
+}
+
+/* Botones */
+.btn-primary {
+    background-color: var(--accent-yellow);
+    color: #000000; /* Texto negro sobre fondo amarillo para que lea bien */
+    font-weight: bold;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+    background-color: #ffea00;
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+/* Tablas */
+.k-table th {
+    background-color: #150824;
+    color: var(--accent-yellow);
+    text-transform: uppercase;
+}
+
+.k-table td {
+    border-bottom: 1px solid #452b7a;
+}

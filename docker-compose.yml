@@ -1,0 +1,14 @@
+services:
+  kitsunarr:
+    image: ghcr.io/kaizy48/kitsunarr:latest
+    container_name: kitsunarr
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${KITSUNARR_PORT}:4080"
+    environment:
+      - KITSUNARR_DATA_DIR=/app/data
+      - TZ=${TZ}
+    volumes:
+      - ${KITSUNARR_CONFIG}:/app/data
