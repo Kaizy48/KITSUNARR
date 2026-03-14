@@ -84,7 +84,9 @@ services:
 
 Este proyecto es de **Código Abierto** bajo la licencia **GNU GPL v3**. Creemos en la transparencia total: el código es auditable para que cualquier usuario sepa exactamente cómo se manejan sus sesiones y datos.
 
-**Nota sobre Atribución**: Tienes derecho a ver, modificar y usar este código. Sin embargo, para cualquier clon o proyecto derivado, **se exige la mención expresa de Kitsunarr como el proyecto original**, manteniendo los créditos del autor de forma visible y clara.
+**Desarrollo Asistido por IA**: Este software utiliza herramientas de Inteligencia Artificial en su proceso de creación para optimizar la lógica y el flujo de trabajo. No obstante, **todo el código es revisado, editado y validado manualmente por programadores con conocimientos técnicos** para garantizar que el sistema sea seguro, eficiente y cumpla con los estándares de calidad necesarios para su uso en producción.
+
+**Nota sobre Atribución**: Tienes derecho a ver, modificar y usar este código. Sin embargo, para cualquier clon o proyecto derivado, **se exige la mención expresa de Kitsunarr como el proyecto original**, manteniendo los créditos del autor de forma visible y clara en todo momento.
 
 #####################
 

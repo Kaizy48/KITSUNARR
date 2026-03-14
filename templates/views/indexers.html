@@ -6,6 +6,15 @@
 {% block header_title %}INDEXADORES{% endblock %}
 
 {% block content %}
+{# ========================================== #}
+{# VISTA PRINCIPAL: INDEXADORES (TRACKERS)    #}
+{# ========================================== #}
+{# 
+    Panel de gestión para los proveedores de búsqueda (Indexadores).
+    Muestra una lista de los trackers configurados, su estado de conexión 
+    en tiempo real, y proporciona controles para añadir, probar (Ping), 
+    editar o eliminar de forma segura cada integración del sistema.
+#}
 <div class="flex items-center mb-6 space-x-3">
   <button onclick="openSelectorModal()" class="btn-primary glow-yellow flex items-center">
     <i class="fa-solid fa-plus mr-2"></i> Añadir Indexador
@@ -31,8 +40,8 @@
     </thead>
     <tbody class="text-sm">
       {% for idx in indexers %}
-      <tr class="hover:bg-gray-800/30 transition">
-        <td class="p-4 font-medium text-white flex items-center" id="status-icon-{{ idx.identifier }}">
+      <tr class="border-b border-gray-800 hover:bg-[#1a0f2e] transition group">
+        <td class="p-4 font-bold text-white flex items-center" id="status-icon-{{ idx.identifier }}">
           {% if idx.status == "ok" %}
           <i class="fa-solid fa-earth-americas text-green-500 mr-3 text-lg" title="Estado: Online"></i>
           {% else %}
@@ -52,7 +61,7 @@
           <button onclick="openConfigModal()" class="transition text-yellow-500 hover:text-white" title="Configurar">
             <i class="fa-solid fa-wrench"></i>
           </button>
-          <button onclick="deleteIndexer('{{ idx.identifier }}')" class="transition text-red-500 hover:text-red-400" title="Eliminar Indexador">
+          <button onclick="deleteIndexer('{{ idx.identifier }}')" class="transition text-red-500 hover:text-white" title="Eliminar">
             <i class="fa-solid fa-trash"></i>
           </button>
         </td>
@@ -62,8 +71,9 @@
   </table>
 </div>
 {% endif %}
+
 {% endblock %}
 
 {% block modals %}
-    {% include 'components/modal_indexer.html' %}
+  {% include 'components/modal_indexer.html' %}
 {% endblock %}

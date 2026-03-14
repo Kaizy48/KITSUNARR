@@ -1,53 +1,103 @@
 {# ========================================== #}
-{# COMPONENTE: MODAL DE FICHA TÉCNICA         #}
+{# COMPONENTE: MODAL DE FICHA TÉCNICA DUAL    #}
 {# Se usa en: cache.html, search.html         #}
 {# ========================================== #}
+
+{# 
+    Modal de Ficha Técnica Dual (Tracker / TheTVDB).
+    Muestra de forma detallada la información de un torrent dividida en dos vistas conmutables:
+    1. Vista Tracker: Muestra los datos crudos extraídos del foro (tamaño, freeleech, póster original y sinopsis).
+    2. Vista IA/TVDB: Muestra el título normalizado, el estado de la vinculación y el póster oficial.
+    También proporciona accesos directos para forzar la limpieza del título individualmente.
+#}
 <div id="infoCacheModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50 backdrop-blur-sm p-4">
     <div class="k-panel w-full max-w-4xl max-h-full overflow-hidden shadow-2xl flex flex-col">
+        
         <div class="px-6 py-4 flex justify-between items-center border-b shrink-0" style="border-color: #452b7a; background-color: var(--bg-card-purple);">
             <h2 class="text-lg font-bold text-white"><i class="fa-solid fa-address-card mr-2 text-yellow-500"></i> Ficha Técnica del Torrent</h2>
             <button onclick="closeInfoModal()" class="hover:text-white transition" style="color: var(--text-muted)"><i class="fa-solid fa-xmark text-xl"></i></button>
         </div>
         
+        <div class="bg-black border-b border-gray-800 p-2 flex justify-center shrink-0">
+            <div class="flex rounded-lg p-1 bg-gray-900 border border-gray-700 w-full sm:w-1/2">
+                <button id="btn_tab_tracker" onclick="switchInfoTab('tracker')" class="flex-1 py-2 text-sm font-bold text-black rounded-md transition-all duration-300 shadow-sm bg-yellow-500">
+                    <i class="fa-solid fa-server mr-2"></i> Datos del Indexador
+                </button>
+                <button id="btn_tab_tvdb" onclick="switchInfoTab('tvdb')" class="flex-1 py-2 text-sm font-bold text-gray-400 hover:text-white rounded-md transition-all duration-300">
+                    <i class="fa-solid fa-wand-magic-sparkles mr-2"></i> Metadatos IA / TVDB
+                </button>
+            </div>
+        </div>
+
         <div class="flex flex-col md:flex-row flex-1 overflow-y-auto custom-scrollbar bg-[#11051c]">
-            <div class="w-full md:w-1/3 shrink-0 p-6 flex flex-col items-center justify-start border-b md:border-b-0 md:border-r" style="border-color: #452b7a;">
-                <div id="info_poster" class="w-full aspect-[2/3] bg-cover bg-center rounded-lg shadow-xl border border-gray-700 relative overflow-hidden flex items-center justify-center bg-black">
+            
+            <div class="w-full md:w-1/3 shrink-0 p-6 flex flex-col items-center justify-start border-b md:border-b-0 md:border-r relative" style="border-color: #452b7a;">
+                <div id="info_poster_badge" class="absolute top-8 left-8 bg-black/80 text-yellow-500 text-xs font-bold px-2 py-1 rounded backdrop-blur-md border border-gray-700 z-10 uppercase tracking-widest shadow-lg">
+                    Tracker
+                </div>
+                
+                <div id="info_poster" class="w-full aspect-[2/3] bg-cover bg-center rounded-lg shadow-xl border border-gray-700 relative overflow-hidden flex items-center justify-center bg-black transition-all duration-500">
+                    <i id="info_poster_placeholder" class="fa-solid fa-image text-4xl text-gray-800"></i>
                 </div>
             </div>
 
-            <div class="w-full md:w-2/3 p-6 space-y-4">
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
-                    <div class="text-purple-400 font-bold text-sm">Título Principal</div>
-                    <div class="sm:col-span-2 text-gray-400 font-mono text-xs break-words" id="info_original_title"></div>
+            <div class="w-full md:w-2/3 p-6 relative">
+                
+                <div id="info_view_tracker" class="space-y-4 transition-opacity duration-300">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-purple-400 font-bold text-sm">Título Principal</div>
+                        <div class="sm:col-span-2 text-gray-400 font-mono text-xs break-words" id="info_original_title">Cargando...</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-yellow-500 font-bold text-sm">Título Enriquecido</div>
+                        <div class="sm:col-span-2 text-yellow-100 font-mono text-sm break-words" id="info_enriched_title">Cargando...</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-purple-400 font-bold text-sm">ID del Foro (GUID)</div>
+                        <div class="sm:col-span-2 text-gray-300 text-sm" id="info_guid">Cargando...</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-purple-400 font-bold text-sm">Tamaño Original</div>
+                        <div class="sm:col-span-2 text-blue-400 font-bold text-sm" id="info_size">Cargando...</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-purple-400 font-bold text-sm">Freeleech 🎁</div>
+                        <div class="sm:col-span-2 text-sm" id="info_freeleech">Cargando...</div>
+                    </div>
+                    <div class="flex flex-col gap-2 pt-2">
+                        <div class="text-purple-400 font-bold text-sm"><i class="fa-solid fa-quote-left mr-1"></i> Sinopsis Original del Uploader</div>
+                        <div class="text-gray-400 text-xs italic bg-black p-4 rounded border border-gray-800 shadow-inner max-h-40 overflow-y-auto custom-scrollbar" id="info_desc_tracker">Cargando...</div>
+                    </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
-                    <div class="text-purple-400 font-bold text-sm">Título Enriquecido</div>
-                    <div class="sm:col-span-2 text-gray-400 font-mono text-xs break-words" id="info_enriched_title"></div>
+
+                <div id="info_view_tvdb" class="space-y-4 hidden transition-opacity duration-300">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-blue-400 font-bold text-sm">Título Limpio (IA)</div>
+                        <div class="sm:col-span-2 text-blue-100 font-mono text-sm break-words" id="info_ai_title">Pendiente de procesar...</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-green-500 font-bold text-sm">Estado de IA</div>
+                        <div class="sm:col-span-2 text-sm" id="info_ai_status">Desconocido</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-blue-400 font-bold text-sm">ID Oficial TVDB</div>
+                        <div class="sm:col-span-2 text-gray-300 text-sm font-mono" id="info_tvdb_id">Pendiente de escaneo...</div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
+                        <div class="text-blue-400 font-bold text-sm">Estado de TVDB</div>
+                        <div class="sm:col-span-2 text-sm" id="info_tvdb_status">Desconocido</div>
+                    </div>
+                    
+                    <div class="pt-2 flex gap-3">
+                        <button id="btn_force_ai" class="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-600/50 py-2 px-4 rounded text-xs font-bold transition flex-1 flex justify-center items-center">
+                            <i class="fa-solid fa-robot mr-2"></i> Solicitar Limpieza IA
+                        </button>
+                        <a id="link_tvdb_external" href="#" target="_blank" class="bg-gray-800 hover:bg-gray-700 text-gray-300 py-2 px-4 rounded border border-gray-600 text-xs font-bold transition flex-1 flex justify-center items-center pointer-events-none opacity-50">
+                            <i class="fa-solid fa-arrow-up-right-from-square mr-2"></i> Ver Ficha TVDB
+                        </a>
+                    </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
-                    <div class="text-yellow-400 font-bold text-sm">Título Enriquecido con IA</div>
-                    <div class="sm:col-span-2 text-yellow-100 font-mono text-sm break-words" id="info_ai_title"></div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
-                    <div class="text-purple-400 font-bold text-sm">ID (GUID)</div>
-                    <div class="sm:col-span-2 text-gray-300 text-sm" id="info_guid"></div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
-                    <div class="text-purple-400 font-bold text-sm">Tamaño</div>
-                    <div class="sm:col-span-2 text-blue-300 font-bold text-sm" id="info_size"></div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
-                    <div class="text-purple-400 font-bold text-sm">Estado IA</div>
-                    <div class="sm:col-span-2 text-sm" id="info_status"></div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">
-                    <div class="text-purple-400 font-bold text-sm">Freeleech</div>
-                    <div class="sm:col-span-2 text-sm" id="info_freeleech"></div>
-                </div>
-                <div class="flex flex-col gap-2 pt-2">
-                    <div class="text-purple-400 font-bold text-sm"><i class="fa-solid fa-quote-left mr-1"></i> Sinopsis</div>
-                    <div class="text-gray-300 text-sm italic bg-black p-4 rounded border border-gray-800" id="info_desc"></div>
-                </div>
+
             </div>
         </div>
         

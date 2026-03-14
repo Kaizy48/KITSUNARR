@@ -6,6 +6,15 @@
 {% block header_title %}BÚSQUEDA INTERACTIVA{% endblock %}
 
 {% block content %}
+{# ========================================== #}
+{# VISTA PRINCIPAL: BÚSQUEDA INTERACTIVA      #}
+{# ========================================== #}
+{# 
+    Interfaz para realizar búsquedas manuales bajo demanda.
+    Permite al usuario forzar un raspado directo sobre el tracker en tiempo real, 
+    observar la barra de progreso de extracción, y previsualizar los resultados 
+    junto con sus metadatos (IA y TVDB) en una tabla antes de procesarlos.
+#}
 <div class="h-full flex flex-col">
     <div class="k-panel p-6 mb-6">
         <h2 class="text-xl font-bold text-white mb-4"><i class="fa-solid fa-magnifying-glass text-yellow-500 mr-2"></i> Búsqueda Interactiva</h2>
@@ -39,7 +48,7 @@
                 </tr>
             </thead>
             <tbody id="search-results-tbody" class="text-sm">
-                <tr><td colspan="4" class="p-8 text-center text-gray-500">Realiza una búsqueda para ver resultados.</td></tr>
+                <tr><td colspan="4" class="p-8 text-center text-gray-500">Realiza una búsqueda para interactuar con el Tracker.</td></tr>
             </tbody>
         </table>
     </div>
@@ -47,6 +56,6 @@
 {% endblock %}
 
 {% block modals %}
-    {# Inyectamos el componente del modal de información #}
     {% include 'components/modal_info.html' %}
+    {% include 'components/modal_ai.html' %}
 {% endblock %}

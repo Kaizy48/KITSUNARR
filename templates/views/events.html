@@ -6,6 +6,15 @@
 {% block header_title %}EVENTOS DE SISTEMA{% endblock %}
 
 {% block content %}
+{# ========================================== #}
+{# VISTA PRINCIPAL: EVENTOS DE SISTEMA (LOGS) #}
+{# ========================================== #}
+{# 
+    Consola de diagnóstico y monitorización interna.
+    Carga y muestra las últimas entradas del archivo físico de registro 
+    (kitsunarr.log). Es fundamental para detectar bloqueos de red (403, 502), 
+    analizar alucinaciones de la IA o confirmar el flujo del sistema en general.
+#}
 <div class="h-full flex flex-col">
     <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-bold text-white"><i class="fa-solid fa-terminal mr-2" style="color: var(--accent-yellow)"></i> Consola de Eventos</h2>
@@ -29,10 +38,11 @@
 
 {% block extra_js %}
 <script>
-    // Al cargar la vista, iniciamos la escucha de logs
     document.addEventListener("DOMContentLoaded", () => {
-        fetchLogs(); 
-        logInterval = setInterval(fetchLogs, 5000); 
+        if(typeof fetchLogs === 'function') {
+            fetchLogs();
+            setInterval(fetchLogs, 5000); 
+        }
     });
 </script>
 {% endblock %}
