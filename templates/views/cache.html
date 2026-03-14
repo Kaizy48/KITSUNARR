@@ -6,6 +6,19 @@
 {% block header_title %}CACHÉ DE TORRENTS{% endblock %}
 
 {% block content %}
+{# ========================================== #}
+{# VISTA PRINCIPAL: CACHÉ DE TORRENTS         #}
+{# ========================================== #}
+{# 
+    Esta vista actúa como el panel de control central de la base de datos local.
+    Muestra una tabla responsiva con todos los torrents extraídos, su estado de 
+    procesamiento de IA y vinculación con TheTVDB.
+    
+    Funcionalidades clave:
+    - Búsqueda y filtrado en tiempo real (lado del cliente).
+    - Importación y exportación de la base de datos en formato JSON.
+    - Lanzamiento de acciones masivas o individuales sobre los registros.
+#}
 <div class="h-full flex flex-col">
     <div class="flex items-center justify-between mb-4">
         <div class="flex items-center space-x-4 w-1/2">
@@ -17,12 +30,15 @@
         <div class="flex items-center space-x-2">
             <input type="file" id="import_cache_file" accept=".json" class="hidden" onchange="handleImportCache(event)">
             <button onclick="document.getElementById('import_cache_file').click()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500" title="Importar JSON">
-                <i class="fa-solid fa-file-import mr-1"></i> Importar
+                <i class="fa-solid fa-file-import mr-1 text-blue-400"></i> Importar
             </button>
             <button onclick="exportCache()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500" title="Exportar JSON">
-                <i class="fa-solid fa-file-export mr-1"></i> Exportar
+                <i class="fa-solid fa-file-export mr-1 text-green-400"></i> Exportar
             </button>
-            <button onclick="loadCacheTable()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:text-yellow-500" title="Recargar base de datos">
+            <button onclick="openBatchModal()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500" title="Procesar Lote Manual">
+                <i class="fa-solid fa-layer-group mr-1 text-purple-400"></i> Lote Manual
+            </button>
+            <button onclick="loadCacheTable()" class="px-3 py-1.5 bg-black text-gray-400 hover:text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500" title="Recargar base de datos">
                 <i class="fa-solid fa-rotate"></i>
             </button>
         </div>
@@ -32,10 +48,10 @@
       <table class="w-full text-left border-collapse k-table" id="cacheTable">
         <thead class="sticky top-0 z-10 bg-[#150824] shadow-md">
           <tr>
-            <th class="p-3 font-bold text-xs w-16 text-center">ID</th>
+            <th class="p-3 font-bold text-xs w-24 text-center">ID Tracker</th>
             <th class="p-3 font-bold text-xs w-1/3">Nombre Base / Descripción</th>
             <th class="p-3 font-bold text-xs w-1/3">Título Final (IA / Enriquecido)</th>
-            <th class="p-3 font-bold text-xs text-center">Estado IA</th>
+            <th class="p-3 font-bold text-xs text-center w-32">Estado IA / TVDB</th>
             <th class="p-3 font-bold text-xs text-right">Opciones</th>
           </tr>
         </thead>
@@ -48,16 +64,17 @@
 {% endblock %}
 
 {% block modals %}
-    {# Inyectamos los componentes de los modales #}
-    {% include 'components/modal_edit.html' %}
     {% include 'components/modal_info.html' %}
+    {% include 'components/modal_edit.html' %}
+    {% include 'components/modal_ai.html' %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    // Carga la tabla automáticamente al entrar en esta vista
     document.addEventListener("DOMContentLoaded", () => {
-        loadCacheTable();
+        if(typeof loadCacheTable === 'function') {
+            loadCacheTable();
+        }
     });
 </script>
 {% endblock %}

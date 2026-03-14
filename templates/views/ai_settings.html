@@ -2,156 +2,117 @@
 
 {% set active_page = "ai" %}
 
-{% block title %}Ajustes de IA{% endblock %}
-{% block header_title %}CONFIGURACIÓN DE IA{% endblock %}
+{% block title %}Laboratorio IA{% endblock %}
+{% block header_title %}LABORATORIO Y DIAGNÓSTICO IA{% endblock %}
 
 {% block content %}
+{# ========================================== #}
+{# VISTA PRINCIPAL: LABORATORIO DE IA         #}
+{# ========================================== #}
+{# 
+    Entorno de pruebas y diagnóstico para asegurar que el modelo de lenguaje 
+    configurado responde correctamente a las peticiones del sistema.
+    
+    Herramientas incluidas:
+    1. Ping Terminal: Envía una petición de red básica para validar credenciales y medir latencia.
+    2. Simulador de Normalización: Permite elegir un torrent real de la caché local, 
+       enviarlo al modelo de lenguaje seleccionado, y mostrar en crudo la respuesta JSON devuelta.
+#}
 <div class="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start h-full">
             
-    <div class="xl:col-span-5 flex flex-col gap-8">
+    <div class="xl:col-span-4 flex flex-col gap-8">
         
-        <div class="k-panel p-6 w-full shrink-0">
-            <div class="flex justify-between items-center border-b border-gray-800 pb-4 mb-4 flex-wrap gap-4">
-                <h2 class="text-xl font-bold text-white"><i class="fa-solid fa-wand-magic-sparkles text-yellow-500 mr-2"></i> Motor de Enriquecimiento (IA)</h2>
-                
-                <div class="flex flex-col space-y-3 items-end w-full sm:w-auto">
-                    <label class="relative inline-flex items-center cursor-pointer" title="Permite a la IA guardar cambios en la base de datos">
-                        <input type="checkbox" id="ai_is_enabled" class="sr-only peer" onchange="handleAIToggleClick(event)" {% if ai_config.is_enabled %}checked{% endif %}>
-                        <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                        <span class="ml-3 text-sm font-bold text-gray-300">Motor General</span>
-                    </label>
-                    <label class="relative inline-flex items-center cursor-pointer" title="Procesa automáticamente en segundo plano">
-                        <input type="checkbox" id="ai_is_automated" class="sr-only peer" onchange="saveAIConfig()" {% if ai_config.is_automated %}checked{% endif %}>
-                        <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-                        <span class="ml-3 text-sm font-bold text-gray-300">Auto-Procesar (60s)</span>
-                    </label>
-                </div>
-            </div>
-
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-bold text-purple-400 mb-1">Proveedor de IA</label>
-                    <select id="ai_provider" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white outline-none focus:border-yellow-500 transition" onchange="toggleAIFields()">
-                        <option value="gemini" {% if ai_config.provider == 'gemini' %}selected{% endif %}>Google Gemini (Recomendado)</option>
-                        <option value="openai" {% if ai_config.provider == 'openai' %}selected{% endif %}>OpenAI (ChatGPT)</option>
-                        <option value="ollama" {% if ai_config.provider == 'ollama' %}selected{% endif %}>Ollama (Local / Self-hosted)</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-bold text-purple-400 mb-1">Nombre del Modelo</label>
-                    <input type="text" id="ai_model" value="{{ ai_config.model_name }}" placeholder="Ej: gemini-1.5-flash" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
-                </div>
-                <div id="ai_key_container">
-                    <label class="block text-sm font-bold text-purple-400 mb-1">API Key</label>
-                    <input type="password" id="ai_key" value="{{ ai_config.api_key }}" placeholder="sk-..." class="w-full bg-black border border-gray-700 rounded p-2.5 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
-                </div>
-                <div id="ai_url_container" class="hidden">
-                    <label class="block text-sm font-bold text-purple-400 mb-1">URL Base (Ollama)</label>
-                    <input type="text" id="ai_url" value="{{ ai_config.base_url }}" placeholder="http://localhost:11434" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
-                </div>
-                
-                <div class="pt-4 flex items-center justify-between border-t border-gray-800">
-                    <button onclick="openBatchModal()" class="text-blue-400 hover:text-white transition text-sm flex items-center">
-                        <i class="fa-solid fa-list-check mr-2"></i> Lote Manual
-                    </button>
-                    <button onclick="saveAIConfig()" class="btn-primary glow-yellow w-1/2">Guardar Ajustes</button>
-                </div>
-            </div>
-        </div>
-
         <div class="k-panel p-6 w-full flex flex-col shrink-0">
             <h2 class="text-lg font-bold text-white border-b border-gray-800 pb-3 mb-4"><i class="fa-solid fa-satellite-dish text-yellow-500 mr-2"></i> Diagnóstico (Ping)</h2>
             <div class="space-y-4 mb-4">
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">Proveedor</label>
+                        <label class="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Proveedor</label>
                         <input type="text" id="ping_provider" readonly value="{{ ai_config.provider }}" class="w-full bg-gray-900 border border-gray-800 rounded p-2 text-gray-400 font-mono text-xs outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 mb-1">Modelo</label>
+                        <label class="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Modelo</label>
                         <input type="text" id="ping_model" readonly value="{{ ai_config.model_name }}" class="w-full bg-gray-900 border border-gray-800 rounded p-2 text-gray-400 font-mono text-xs outline-none">
                     </div>
                 </div>
-                <div id="ping_key_container">
-                    <label class="block text-xs font-bold text-gray-500 mb-1">API Key</label>
-                    <input type="password" id="ping_key" readonly value="{{ ai_config.api_key }}" class="w-full bg-gray-900 border border-gray-800 rounded p-2 text-gray-400 font-mono text-xs outline-none">
-                </div>
-                <div id="ping_url_container" class="hidden">
-                    <label class="block text-xs font-bold text-gray-500 mb-1">URL Base</label>
-                    <input type="text" id="ping_url" readonly value="{{ ai_config.base_url }}" class="w-full bg-gray-900 border border-gray-800 rounded p-2 text-gray-400 font-mono text-xs outline-none">
+                
+                <input type="hidden" id="ping_key" value="{{ ai_config.api_key }}">
+                <input type="hidden" id="ping_url" value="{{ ai_config.base_url }}">
+                
+                <div class="bg-black border border-gray-800 rounded-lg p-3 font-mono text-xs text-green-400 h-32 overflow-y-auto custom-scrollbar shadow-inner" id="ping_terminal">
+                    > Esperando comando...
                 </div>
             </div>
-            
-            <button onclick="runAIPing()" id="btn_run_ping" class="w-full bg-black hover:bg-gray-800 text-white font-bold py-2.5 px-4 rounded border border-gray-700 transition flex items-center justify-center mb-4">
+            <button onclick="runAIPing()" id="btn_run_ping" class="w-full bg-gray-800 hover:bg-gray-700 border border-gray-600 text-white font-bold py-2 rounded transition">
                 <i class="fa-solid fa-wifi text-yellow-500 mr-2"></i> Testear Conexión
             </button>
-            
-            <div class="bg-black border border-gray-800 rounded p-3 h-24 overflow-y-auto custom-scrollbar">
-                <pre id="ping_terminal" class="text-xs text-gray-300 font-mono whitespace-pre-wrap leading-relaxed"><span class="text-gray-600 italic">Esperando inicialización del test...</span></pre>
-            </div>
         </div>
+
     </div>
 
-    <div class="xl:col-span-7 k-panel p-6 h-full flex flex-col min-h-[600px]">
-        <h2 class="text-xl font-bold text-white border-b border-gray-800 pb-4 mb-4"><i class="fa-solid fa-flask text-yellow-500 mr-2"></i> Laboratorio de Pruebas</h2>
-        
-        <div class="flex-1 flex flex-col space-y-6">
-            <div class="relative">
-                <label class="block text-sm font-bold text-purple-400 mb-2">Seleccionar Torrent de la Caché</label>
-                <div class="relative">
-                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-500"></i>
-                    <input type="text" id="test_ai_search_input" onkeyup="filterAITestDropdown()" onfocus="showAITestDropdown()" onblur="hideAITestDropdownDelayed()" placeholder="Escribe el nombre o busca en la lista..." class="w-full bg-black border border-gray-700 focus:border-yellow-500 rounded p-2.5 pl-10 text-white outline-none transition">
+    <div class="xl:col-span-8 flex flex-col h-full">
+        <div class="k-panel flex flex-col flex-1 relative overflow-hidden h-full">
+            <div class="p-6 border-b border-gray-800 shrink-0" style="background-color: var(--bg-card-purple);">
+                <h2 class="text-xl font-bold text-white"><i class="fa-solid fa-flask text-purple-400 mr-2"></i> Simulador de Normalización</h2>
+                <p class="text-sm text-gray-400 mt-1">Selecciona un torrent de tu caché local para previsualizar cómo lo procesará el modelo IA.</p>
+            </div>
+            
+            <div id="test_ai_progress_container" class="hidden w-full bg-gray-900 h-1 relative overflow-hidden">
+                <div id="test_ai_progress_bar" class="h-full bg-yellow-500 transition-all duration-300 w-0 relative">
+                    <div class="absolute top-0 right-0 bottom-0 left-0 bg-white/20 animate-pulse"></div>
                 </div>
-                <div id="test_ai_dropdown_list" class="absolute z-50 w-full bg-gray-900 border border-gray-700 mt-1 rounded max-h-48 overflow-y-auto hidden custom-scrollbar shadow-2xl">
-                    </div>
-                <input type="hidden" id="test_ai_selected_guid">
+                <div id="test_ai_percentage" class="absolute right-2 top-2 text-[10px] font-bold text-yellow-500">0%</div>
             </div>
 
-            <div class="flex flex-col md:flex-row gap-6">
-                <div class="w-full md:w-1/3 shrink-0">
-                    <div id="test_ai_poster" class="w-full aspect-[2/3] bg-cover bg-center rounded border border-gray-700 bg-black flex items-center justify-center">
-                        <i class="fa-solid fa-image text-3xl text-gray-700"></i>
+            <div class="p-6 flex-1 overflow-y-auto custom-scrollbar space-y-6 bg-[#0a0310]">
+                
+                <div class="relative z-20">
+                    <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Seleccionar Archivo de Prueba</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-500"></i>
+                        <input type="text" id="test_ai_search_input" placeholder="Buscar torrent por nombre en la caché..." class="w-full bg-black border border-gray-600 focus:border-purple-500 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none transition shadow-inner" onfocus="showAITestDropdown()" onblur="hideAITestDropdownDelayed()" onkeyup="filterAITestDropdown()">
+                        
+                        <div id="test_ai_dropdown_list" class="hidden absolute top-full left-0 w-full mt-1 bg-black border border-gray-700 rounded shadow-2xl max-h-60 overflow-y-auto custom-scrollbar z-50">
+                        </div>
                     </div>
+                    <input type="hidden" id="test_ai_selected_guid">
                 </div>
-                <div class="w-full md:w-2/3 space-y-4">
-                    <div>
-                        <div class="text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Título Original (Crudo)</div>
-                        <div id="test_ai_original_title" class="text-sm text-gray-300 font-mono bg-black p-2 rounded border border-gray-800">-</div>
-                    </div>
-                    <div>
-                        <div class="text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Título Enriquecido (Extraído de la Ficha)</div>
-                        <div id="test_ai_enriched_title" class="text-sm text-white font-bold font-mono bg-black p-2 rounded border border-gray-800 shadow-inner">-</div>
-                    </div>
-                    <div class="flex-1 flex flex-col">
-                        <div class="text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Sinopsis Encontrada</div>
-                        <div id="test_ai_description" class="text-xs text-gray-400 italic bg-black p-3 rounded border border-gray-800 flex-1 overflow-y-auto custom-scrollbar max-h-32">Sin descripción original...</div>
-                    </div>
-                </div>
-            </div>
 
-            <div class="border-t border-gray-800 pt-6 mt-auto">
-                <div id="test_ai_progress_container" class="hidden mb-4">
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-yellow-500 font-bold" id="test_ai_status_text">Iniciando análisis...</span>
-                        <span class="text-gray-400 font-mono" id="test_ai_percentage">0%</span>
+                <div class="flex flex-col md:flex-row gap-6 items-start border border-gray-800 p-4 rounded-lg bg-black/50">
+                    
+                    <div class="w-full md:w-1/3 shrink-0">
+                        <div id="test_ai_poster" class="w-full aspect-[2/3] bg-gray-900 rounded border border-gray-700 bg-cover bg-center flex items-center justify-center shadow-xl">
+                            <i class="fa-solid fa-image text-4xl text-gray-800"></i>
+                        </div>
                     </div>
-                    <div class="w-full bg-gray-800 rounded-full h-2.5 overflow-hidden">
-                        <div id="test_ai_progress_bar" class="bg-yellow-500 h-2.5 rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
+                    
+                    <div class="w-full md:w-2/3 flex flex-col space-y-4">
+                        <div>
+                            <div class="text-xs font-bold text-gray-500 uppercase tracking-wider">Título Original Tracker</div>
+                            <div id="test_ai_original_title" class="text-sm text-white font-bold">-</div>
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-yellow-600 uppercase tracking-wider">Título de Entrada a la IA</div>
+                            <div id="test_ai_enriched_title" class="text-sm text-yellow-100 font-mono">-</div>
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-gray-500 uppercase tracking-wider">Sinopsis Extraída</div>
+                            <div id="test_ai_description" class="text-sm text-gray-400 italic leading-relaxed">-</div>
+                        </div>
                     </div>
+
                 </div>
 
                 <div id="test_ai_result_box" class="bg-[#11051c] border border-gray-800 rounded-lg p-4 flex flex-col relative overflow-hidden transition-colors duration-500">
                     <div class="text-xs font-bold text-yellow-500 mb-2 uppercase tracking-wider flex items-center">
                         <i class="fa-solid fa-robot mr-2"></i> Resultado Generado por IA
                     </div>
-                    <div id="test_ai_result_title" class="text-sm text-gray-500 font-mono bg-black border border-gray-800 p-4 rounded shadow-inner min-h-[5rem] flex items-center break-words">
-                        Esperando orden...
-                    </div>
+                    <div id="test_ai_result_title" class="text-sm text-gray-500 font-mono bg-black border border-gray-800 p-4 rounded shadow-inner min-h-[6rem] flex items-center break-words whitespace-pre-wrap leading-relaxed">Esperando orden...</div>
                 </div>
 
                 <div class="mt-4 flex justify-end">
                     <button onclick="runAITest()" id="btn_run_test" class="btn-primary glow-yellow w-full md:w-auto px-8 py-3 text-lg">
-                        <i class="fa-solid fa-play mr-2"></i> Probar Formateo IA
+                        <i class="fa-solid fa-play mr-2"></i> Procesar Ficha
                     </button>
                 </div>
             </div>
@@ -167,9 +128,7 @@
 {% block extra_js %}
 <script>
     document.addEventListener("DOMContentLoaded", () => {
-        populateAITestDropdown();
-        toggleAIFields();
-        togglePingFields();
+        if(typeof populateAITestDropdown === 'function') populateAITestDropdown();
     });
 </script>
 {% endblock %}

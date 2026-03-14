@@ -2,6 +2,12 @@
 {# COMPONENTES: MODALES DE SISTEMA            #}
 {# ========================================== #}
 
+{# 
+    Modal de advertencia de reinicio del sistema.
+    Notifica al usuario que la regeneración de la Clave API principal de Kitsunarr 
+    requiere un reinicio del servidor web (Uvicorn) para aplicarse por completo 
+    en todas las rutas de seguridad. Proporciona la opción de forzar el reinicio.
+#}
 <div id="restartModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50 backdrop-blur-sm">
     <div class="k-panel w-full max-w-md overflow-hidden shadow-2xl glow-yellow text-center p-8">
         <i class="fa-solid fa-triangle-exclamation text-5xl text-yellow-500 mb-4"></i>

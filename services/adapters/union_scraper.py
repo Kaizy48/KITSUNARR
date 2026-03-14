@@ -25,12 +25,17 @@ load_dotenv()
 # FUNCIONES AUXILIARES DE PARSEO
 # ==========================================
 
+"""
+Convierte fechas en formato de texto español al formato RFC estándar 
+requerido por Sonarr en el XML Torznab.
+
+Parámetros:
+    date_str (str): Cadena de texto con la fecha en español (ej. '05 Mar 2024 16:30').
+
+Retorna:
+    str: Fecha formateada en estándar RFC, o la fecha y hora actuales en caso de error.
+"""
 def parse_spanish_date_to_rfc(date_str: str) -> str:
-    """
-    Convierte fechas en formato texto español (ej. "05 Mar 2024 16:30") 
-    al formato RFC estándar requerido por Sonarr en el XML Torznab.
-    Si la conversión falla, devuelve la hora actual del servidor.
-    """
     meses = {"Ene": "01", "Feb": "02", "Mar": "03", "Abr": "04", "May": "05", "Jun": "06", 
              "Jul": "07", "Ago": "08", "Sep": "09", "Oct": "10", "Nov": "11", "Dic": "12"}
     try:
@@ -47,12 +52,42 @@ def parse_spanish_date_to_rfc(date_str: str) -> str:
         pass
     return formatdate(time.time(), localtime=False, usegmt=True)
 
+"""
+Analiza el título procesado por la IA y extrae los números de temporada para 
+generar los atributos Torznab de Sonarr (soporta rangos como S01-S04 o temporadas únicas).
+
+Parámetros:
+    title (str): Título procesado y normalizado.
+
+Retorna:
+    list[int]: Lista de enteros que representan cada temporada contenida en el release.
+"""
+def extract_seasons(title: str) -> list[int]:
+    seasons = []
+    range_match = re.search(r"S(\d{1,2})-S(\d{1,2})", title, re.IGNORECASE)
+    if range_match:
+        start = int(range_match.group(1))
+        end = int(range_match.group(2))
+        if start <= end and (end - start) < 20:
+            seasons = list(range(start, end + 1))
+    else:
+        single_match = re.search(r"S(\d{1,2})", title, re.IGNORECASE)
+        if single_match:
+            seasons = [int(single_match.group(1))]
+            
+    return seasons
+
+"""
+Extrae la sinopsis, metadatos técnicos y caducidad del freeleech 
+analizando el código HTML de la ficha de detalles de un torrent específico.
+
+Parámetros:
+    html_content (str): Código HTML completo de la página de detalles del tracker.
+
+Retorna:
+    dict: Diccionario estructurado con la información extraída.
+"""
 def parse_ficha_metadata(html_content: str) -> dict:
-    """
-    Analiza el código HTML de la página de detalles de un torrent de UnionFansub.
-    Extrae la sinopsis, metadatos técnicos (Resolución, Códec, Subs), 
-    la URL del foro (para obtener la imagen) y comprueba el tiempo restante de Freeleech.
-    """
     soup = BeautifulSoup(html_content, "lxml")
     ficha_table = soup.find("table", class_="ficha")
     
@@ -115,11 +150,17 @@ def parse_ficha_metadata(html_content: str) -> dict:
 
     return result
 
+"""
+Convierte una cadena de texto que describe un tamaño (ej. '1.5 GB') en su 
+equivalente numérico en bytes enteros, necesario para el protocolo Torznab.
+
+Parámetros:
+    size_str (str): Cadena de texto representativa del tamaño.
+
+Retorna:
+    int: Tamaño numérico en bytes. Devuelve 0 en caso de no poder parsearlo.
+"""
 def parse_size_to_bytes(size_str: str) -> int:
-    """
-    Convierte una cadena de texto de tamaño (Ej. "1.5 GB") a su valor entero en bytes.
-    Necesario porque el protocolo Torznab exige el tamaño exacto en bytes enteros.
-    """
     size_str = size_str.replace(",", ".").upper().strip()
     try:
         if "GB" in size_str: return int(float(size_str.replace("GB", "").strip()) * 1024**3)
@@ -133,27 +174,46 @@ def parse_size_to_bytes(size_str: str) -> int:
 # SCRAPER PRINCIPAL Y GENERACIÓN XML
 # ==========================================
 
+"""
+Ejecuta la búsqueda y extracción de datos del tracker principal simulando 
+un navegador. Gestiona la caché, extrae metadatos adicionales de cada ficha, 
+y devuelve los resultados en formato XML Torznab o una lista de IDs.
+
+Parámetros:
+    query (str): Término de búsqueda solicitado.
+    cookie_string (str): Cookie de sesión válida del usuario.
+    base_url (str): URL base de la aplicación Kitsunarr.
+    offset (int): Paginación de la búsqueda (por defecto 0).
+    interactivo (bool): Determina si se devuelve una lista de IDs o el XML directamente.
+
+Retorna:
+    str | list: XML en formato Torznab listo para Sonarr, o una lista de identificadores.
+"""
 async def search_unionfansub_html(query: str, cookie_string: str, base_url: str, offset: int = 0, interactivo: bool = False) -> str | list:
-    """
-    Lógica principal de scraping. Realiza una búsqueda en UnionFansub.
-    
-    MODOS DE EJECUCIÓN:
-    - Si 'interactivo' es False (Petición Sonarr): Evalúa los torrents, raspa sus fichas si son nuevos
-      y genera un XML en formato Torznab. Sirve la versión híbrida (Base y de IA).
-    - Si 'interactivo' es True (Búsqueda UI): Evalúa los torrents, los añade a la base de datos y 
-      devuelve únicamente una lista de los IDs numéricos encontrados para pintarlos rápidamente.
-    """
     search_param = urllib.parse.quote(query) if query else ""
     page_num = offset // 15
     url = f"https://torrent.unionfansub.com/browse.php?search={search_param}&incldead=0&page={page_num}"
     
-    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0"
-    headers = {"User-Agent": user_agent, "Cookie": cookie_string, "Accept": "text/html", "Referer": "https://torrent.unionfansub.com/"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Host": "torrent.unionfansub.com",
+        "Priority": "u=0, i",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-GPC": "1",
+        "TE": "trailers",
+        "Upgrade-Insecure-Requests": "1",
+        "Cookie": cookie_string
+    }
 
     try:
         async with httpx.AsyncClient(follow_redirects=False, headers=headers, timeout=30.0) as client:
             response = await client.get(url)
-            # Detección temprana de mecanismo Anti-Flood de UnionFansub
             if response.status_code == 302:
                 raise HTTPException(status_code=502, detail="Bloqueado por el tracker (302). Espera unos segundos.")
             response.raise_for_status()
@@ -161,10 +221,9 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
             soup = BeautifulSoup(response.text, "lxml")
             torrents_table = soup.find("table", class_="tlist")
             
-            torrents_data = [] # Destinado al parseo XML de Sonarr
-            interactive_ids = [] # Destinado a la UI
+            torrents_data = [] 
+            interactive_ids = [] 
             
-            # Control de tabla vacía (sin resultados)
             if not torrents_table: 
                 return [] if interactivo else generate_torznab_xml([], query)
 
@@ -197,27 +256,29 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
 
                     db_torrent = db_session.exec(select(TorrentCache).where(TorrentCache.guid == torrent_id)).first()
 
-                    # LÓGICA DE CACHÉ: Si existe en nuestra BD, lo leemos sin golpear al tracker externo
                     if db_torrent:
-                        logger.info(f"⚡ [CACHÉ] Encontrado en DB: {torrent_id} (Sirviendo en modo Híbrido)")
+                        logger.info(f"⚡ [CACHÉ] Encontrado en DB: {torrent_id}")
                         pub_date = db_torrent.pub_date or formatdate(time.time(), localtime=False, usegmt=True)
                         
                         if not interactivo:
-                            # 1. Empujamos la Versión Base
                             torrents_data.append({
                                 "title": db_torrent.enriched_title, "guid": f"{torrent_id}_base",
                                 "link": f"{base_url}/api/download/{torrent_id}_base", "size_bytes": size_bytes,
-                                "seeders": seeders, "leechers": leechers, "pub_date": pub_date, "freeleech_until": db_torrent.freeleech_until
+                                "seeders": seeders, "leechers": leechers, "pub_date": pub_date, 
+                                "freeleech_until": db_torrent.freeleech_until,
+                                "tvdb_id": None, "seasons": []
                             })
-                            # 2. Empujamos la Versión Inteligente si existe (Doble hit)
-                            if db_torrent.ai_translated_title:
+                            
+                            if db_torrent.ai_translated_title and db_torrent.ai_status in ["Listo", "Manual"]:
                                 torrents_data.append({
                                     "title": db_torrent.ai_translated_title, "guid": f"{torrent_id}_ai",
                                     "link": f"{base_url}/api/download/{torrent_id}_ai", "size_bytes": size_bytes,
-                                    "seeders": seeders, "leechers": leechers, "pub_date": pub_date, "freeleech_until": db_torrent.freeleech_until
+                                    "seeders": seeders, "leechers": leechers, "pub_date": pub_date, 
+                                    "freeleech_until": db_torrent.freeleech_until,
+                                    "tvdb_id": db_torrent.tvdb_id,
+                                    "seasons": extract_seasons(db_torrent.ai_translated_title)
                                 })
                     
-                    # LÓGICA NUEVA: Si el torrent no está en caché, raspamos su ficha de detalles
                     else:
                         logger.info(f"🔍 [NUEVO] Raspando Ficha de: {torrent_id}")
                         details_url = f"https://torrent.unionfansub.com/details.php?id={torrent_id}&hit=1"
@@ -229,12 +290,10 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
                             ficha_data = parse_ficha_metadata(details_resp.text)
                             enriched_title = f"{original_title} {ficha_data['extra_info']}".strip()
                             
-                            # Intentamos conseguir el póster del foro
                             poster_url = None
                             if ficha_data.get("forum_url"):
                                 poster_url = await fetch_poster_url(ficha_data["forum_url"], cookie_string)
                             
-                            # Guardamos en la Caché Base de Datos para el futuro
                             new_torrent = TorrentCache(
                                 indexer="unionfansub", guid=torrent_id,
                                 original_title=original_title, enriched_title=enriched_title,
@@ -251,10 +310,10 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
                                     "title": enriched_title, "guid": f"{torrent_id}_base",
                                     "link": f"{base_url}/api/download/{torrent_id}_base", "size_bytes": size_bytes,
                                     "seeders": seeders, "leechers": leechers, "pub_date": ficha_data['pub_date'],
-                                    "freeleech_until": ficha_data['freeleech_until']
+                                    "freeleech_until": ficha_data['freeleech_until'],
+                                    "tvdb_id": None, "seasons": []
                                 })
                             
-                            # Retraso intencional para evitar ser baneados por el Anti-Flood del foro
                             await asyncio.sleep(1.5)
                         except Exception as e:
                             logger.error(f"⚠️ Error raspando ficha {torrent_id}: {e}")
@@ -267,12 +326,18 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
 
     return generate_torznab_xml(torrents_data, query)
 
+"""
+Construye la estructura XML válida bajo el esquema de Torznab para la respuesta.
+Inyecta dinámicamente los atributos Torznab avanzados de TVDB y Temporada para Sonarr.
+
+Parámetros:
+    torrents (list): Lista de diccionarios con la información pre-procesada de cada torrent.
+    query (str): El término de búsqueda que generó esta respuesta.
+
+Retorna:
+    str: Cadena de texto XML compatible con Sonarr/Prowlarr.
+"""
 def generate_torznab_xml(torrents: list, query: str) -> str:
-    """
-    Construye la estructura XML en base al estándar Torznab.
-    Es el lenguaje puente que permite a Sonarr entender los torrents de Kitsunarr.
-    Ajusta dinámicamente si el torrent es Freeleech (dl_factor = 0) o Normal (dl_factor = 1).
-    """
     xml_items = ""
     for t in torrents:
         size_bytes = t['size_bytes'] if t['size_bytes'] > 0 else 1
@@ -281,6 +346,14 @@ def generate_torznab_xml(torrents: list, query: str) -> str:
         dl_factor = 1 
         if t.get('freeleech_until') and datetime.utcnow() < t['freeleech_until']:
             dl_factor = 0 
+            
+        extra_attrs = ""
+        if t.get('tvdb_id') and str(t['tvdb_id']).lower() not in ["null", "none", ""]:
+            extra_attrs += f'\n            <torznab:attr name="tvdbid" value="{t["tvdb_id"]}" />'
+            
+        if t.get('seasons'):
+            for s in t['seasons']:
+                extra_attrs += f'\n            <torznab:attr name="season" value="{s}" />'
         
         xml_items += f"""
         <item>
@@ -295,9 +368,9 @@ def generate_torznab_xml(torrents: list, query: str) -> str:
             <torznab:attr name="peers" value="{int(t['seeders']) + int(t['leechers'])}" />
             <torznab:attr name="size" value="{size_bytes}" />
             <torznab:attr name="downloadvolumefactor" value="{dl_factor}" />
-            <torznab:attr name="uploadvolumefactor" value="1" />
-        </item>
-        """
+            <torznab:attr name="uploadvolumefactor" value="1" />{extra_attrs}
+        </item>"""
+        
     return f"""<?xml version="1.0" encoding="UTF-8"?>
     <rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
         <channel>
@@ -309,14 +382,36 @@ def generate_torznab_xml(torrents: list, query: str) -> str:
     </rss>
     """
 
+"""
+Realiza una petición rápida de prueba al rastreador web utilizando las cabeceras 
+que simulan un navegador completo para verificar si la cookie actual sigue siendo válida.
+
+Parámetros:
+    cookie_string (str): La cookie de sesión que se debe probar.
+
+Retorna:
+    bool: True si la respuesta es 200 OK, False en caso contrario.
+"""
 async def test_unionfansub_connection(cookie_string: str) -> bool:
-    """
-    Prueba rápida (Ping) para verificar si la cookie actual proporcionada por el usuario 
-    sigue siendo válida y permite el acceso al foro principal de descargas.
-    """
     url = "https://torrent.unionfansub.com/browse.php"
-    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0"
-    headers = {"User-Agent": user_agent, "Cookie": cookie_string}
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Host": "torrent.unionfansub.com",
+        "Priority": "u=0, i",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-GPC": "1",
+        "TE": "trailers",
+        "Upgrade-Insecure-Requests": "1",
+        "Cookie": cookie_string
+    }
+    
     try:
         async with httpx.AsyncClient(follow_redirects=False) as client:
             response = await client.get(url, headers=headers, timeout=10.0)

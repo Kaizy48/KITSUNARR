@@ -4,25 +4,28 @@
 from typing import Optional
 from sqlmodel import Field, SQLModel
 
+"""
+Modelo de base de datos que guarda las credenciales y el estado de conexión de los diferentes indexadores.
+Controla la autenticación de cada tracker configurado por el usuario.
+
+Atributos:
+- identifier: Nombre interno y único del indexador (Clave Primaria).
+- name: Nombre visual utilizado para la interfaz gráfica.
+- auth_type: Tipo de autenticación requerida por el indexador (ej. 'cookie', 'login').
+- cookie_string: Cadena de texto de la cookie de sesión capturada del navegador.
+- username: Nombre de usuario para sistemas de inicio de sesión automático.
+- password: Contraseña para sistemas de inicio de sesión automático.
+- api_key: Clave de acceso si el tracker expone una API oficial nativa.
+- is_enabled: Interruptor global para activar o desactivar las búsquedas en este tracker.
+- status: Último estado de conexión conocido ('ok', 'error', 'unknown').
+"""
 class IndexerConfig(SQLModel, table=True):
-    """
-    Guarda las credenciales y el estado de conexión de los diferentes indexadores
-    (trackers) configurados por el usuario.
-    """
-    id: Optional[int] = Field(default=None, primary_key=True)
-    
-    # --- IDENTIDAD DEL INDEXADOR ---
-    name: str = Field(unique=True)           # Nombre visual
-    identifier: str = Field(unique=True)     # Nombre interno para lógica del código
-    
-    # --- CREDENCIALES DE AUTENTICACIÓN ---
-    # auth_type: Indica el método usado para burlar la seguridad ("cookie", "login" o "api")
-    auth_type: str                           
-    cookie_string: Optional[str] = None      # La cookie de sesión copiada por el usuario del navegador
-    username: Optional[str] = None           # (Usuario de auto-login)
-    password: Optional[str] = None           # (Contraseña de auto-login)
-    api_key: Optional[str] = None            # (Si el tracker soporta APIs oficiales)
-    
-    # --- ESTADO Y CONTROL ---
-    is_enabled: bool = True                  # Interruptor para apagar el uso del tracker sin borrar credenciales
-    status: str = "unknown"                  # Muestra el resultado del último ping ("ok", "error", "unknown")
+    identifier: str = Field(primary_key=True)
+    name: str = Field(unique=True)
+    auth_type: str
+    cookie_string: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    api_key: Optional[str] = None
+    is_enabled: bool = True
+    status: str = "unknown"
