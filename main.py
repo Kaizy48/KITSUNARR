@@ -254,7 +254,7 @@ async def proxy_download_torrent(guid: str):
 
     logger.info(f"📥 Sonarr solicita descarga. Original: {guid} | ID Real: {clean_guid}")
     url = f"https://torrent.unionfansub.com/download.php?torrent={clean_guid}"
-    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0"
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr; +https://github.com/Kaizy48/KITSUNARR)"
     
     headers = {
         "User-Agent": user_agent, "Cookie": cookie,

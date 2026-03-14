@@ -176,7 +176,7 @@ def parse_size_to_bytes(size_str: str) -> int:
 
 """
 Ejecuta la búsqueda y extracción de datos del tracker principal simulando 
-un navegador. Gestiona la caché, extrae metadatos adicionales de cada ficha, 
+un navegador personalizado de Kitsunarr. Gestiona la caché, extrae metadatos adicionales de cada ficha, 
 y devuelve los resultados en formato XML Torznab o una lista de IDs.
 
 Parámetros:
@@ -195,7 +195,7 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
     url = f"https://torrent.unionfansub.com/browse.php?search={search_param}&incldead=0&page={page_num}"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr/0.2.1; +https://github.com/Kaizy48/KITSUNARR)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",
@@ -384,7 +384,7 @@ def generate_torznab_xml(torrents: list, query: str) -> str:
 
 """
 Realiza una petición rápida de prueba al rastreador web utilizando las cabeceras 
-que simulan un navegador completo para verificar si la cookie actual sigue siendo válida.
+que simulan un navegador personalizado de Kitsunarr para verificar si la cookie actual sigue siendo válida.
 
 Parámetros:
     cookie_string (str): La cookie de sesión que se debe probar.
@@ -396,7 +396,7 @@ async def test_unionfansub_connection(cookie_string: str) -> bool:
     url = "https://torrent.unionfansub.com/browse.php"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr/0.2.1; +https://github.com/Kaizy48/KITSUNARR)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",

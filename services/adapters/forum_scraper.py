@@ -9,7 +9,7 @@ from core.logger import logger
 """
 Visita el tema específico (hilo) del foro asociado a un release y extrae 
 la URL de la portada original de alta calidad contenida en el diseño de la página.
-Simula un navegador completo para evadir restricciones de seguridad del dominio.
+Simula un navegador completo identificandose como Kitsunarr.
 
 Parámetros:
     forum_url (str): URL directa al hilo del foro.
@@ -23,7 +23,7 @@ async def fetch_poster_url(forum_url: str, cookie_string: str) -> str | None:
         forum_url = f"https:{forum_url}"
         
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr; +https://github.com/Kaizy48/KITSUNARR)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",
