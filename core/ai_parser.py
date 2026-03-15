@@ -19,10 +19,6 @@ from core.models.system import AIConfig, SystemConfig
 Procesa de forma automatizada o manual un lote de torrents pendientes, utilizando 
 el proveedor de Inteligencia Artificial configurado. Recupera metadatos, cruza 
 información con candidatos de TheTVDB y actualiza la base de datos con los resultados.
-
-Parámetros:
-    specific_guids (list[str], opcional): Lista de GUIDs específicos a procesar. 
-                                          Si se omite, buscará los pendientes automáticamente.
 """
 async def process_pending_torrents(specific_guids: list[str] = None):
     with Session(engine) as session:
@@ -88,15 +84,6 @@ async def process_pending_torrents(specific_guids: list[str] = None):
 """
 Realiza una prueba aislada del motor de IA con un torrent específico, sin guardar 
 los cambios en la base de datos. Se utiliza en el entorno de pruebas de la interfaz web.
-
-Parámetros:
-    guid (str): Identificador único del torrent en la caché.
-    title (str): Título original o enriquecido del torrent.
-    description (str): Sinopsis extraída del tracker.
-    config (AIConfig): Objeto de configuración con las credenciales a probar.
-
-Retorna:
-    str: Cadena de texto con el resultado JSON devuelto por la IA.
 """
 async def test_single_torrent_ai(guid: str, title: str, description: str, config: AIConfig) -> str:
     with Session(engine) as session:
@@ -114,12 +101,6 @@ async def test_single_torrent_ai(guid: str, title: str, description: str, config
 """
 Ejecuta un ping básico al proveedor de Inteligencia Artificial para verificar 
 la validez de la clave API o la conexión con el servidor local.
-
-Parámetros:
-    config (AIConfig): Objeto de configuración con los parámetros de red a probar.
-
-Retorna:
-    str: Respuesta directa generada por el modelo de lenguaje.
 """
 async def test_ai_connection(config: AIConfig) -> str:
     prompt = "Petición de testeo: responde únicamente con la frase exacta 'Estoy escuchando.' sin comillas ni texto adicional."
@@ -134,91 +115,70 @@ async def test_ai_connection(config: AIConfig) -> str:
 Construye el prompt definitivo que se enviará al modelo de lenguaje. 
 Reemplaza las variables mágicas del prompt personalizado del usuario o utiliza 
 la plantilla maestra del sistema para inyectar títulos, descripciones y candidatos TVDB.
-
-Parámetros:
-    title (str): Título del torrent a procesar.
-    description (str): Sinopsis proporcionada por el tracker.
-    tvdb_candidates (str, opcional): Cadena JSON con posibles coincidencias de TheTVDB.
-    custom_prompt (str, opcional): Plantilla personalizada definida por el usuario.
-
-Retorna:
-    str: El prompt final formateado y listo para el LLM.
 """
 def _build_single_prompt(title: str, description: str, tvdb_candidates: str = None, custom_prompt: str = None) -> str:
     if custom_prompt and custom_prompt.strip():
-        prompt = custom_prompt
-        prompt = prompt.replace("{title}", title)
-        prompt = prompt.replace("{description}", description)
-        prompt = prompt.replace("{tvdb_candidates}", tvdb_candidates if tvdb_candidates else "Sin coincidencias en TVDB.")
-        return prompt
+        return custom_prompt.replace("{title}", title).replace("{description}", description).replace("{tvdb_candidates}", tvdb_candidates or "Sin candidatos.")
 
     prompt = f"""
-Eres un experto en organizar metadatos de anime para Sonarr. 
-Tu objetivo es normalizar el título de un torrent manteniendo INTEGRALMENTE los datos técnicos y aplicando reglas estrictas de nomenclatura.
+Eres un experto en metadatos de anime para Sonarr. Tu misión es normalizar títulos de torrents.
 
-REGLAS CRÍTICAS DE PROCESAMIENTO:
-1. [FANSUB]: Mantén el primer bloque de fansub exactamente como está.
-2. TÍTULO OFICIAL: 
-   - Extrae el nombre de la serie.
-   - ¡IMPORTANTE!: Si seleccionas un ID de TVDB de la lista de candidatos, DEBES renombrar la serie EXACTAMENTE con el 'name' oficial que aparece en la opción de TVDB elegida.
-3. TEMPORADAS Y PACKS:
-   - Busca en el título y en la sinopsis menciones a "Primera Temporada", "Segunda Temporada", etc. o formatos similares. 
-   - Si es un PACK o rango (Ej: "Temporadas 1-4"), conviértelo al estándar de Sonarr: "S01-S04".
-   - Si es una única temporada, conviértela al formato SXX (S01, S02...). 
-   - Si no hay mención y NO es un pack, usa S01 por defecto.
-4. [tvdb-ID]: Si seleccionas un ID de TVDB, insértalo como [tvdb-XXXXXX] justo después de la temporada/pack.
-5. METADATOS TÉCNICOS: Conserva TODOS los bloques entre corchetes del final (resolución, códecs, audios, subs). ¡PROHIBIDO BORRARLOS O RESUMIRLOS!
+REGLAS DE ORO:
+1. [FANSUB]: Mantén el primer bloque de fansub intacto (ej. [UnionFansub | User]).
+2. MATCH TVDB (PRIORIDAD ESPAÑOL): 
+   - Compara el 'Título Crudo' con el 'name' y la lista de 'aliases' de los candidatos.
+   - Si hay coincidencia, usa el 'name' del candidato (que está en español) para el título final.
+3. DETECCIÓN DE TEMPORADA Y PACKS:
+   - Prioridad 1: Buscar en el Título Crudo.
+   - Prioridad 2: Si no está en el título, busca en la Sinopsis del Tracker (ej. "Tercera Temporada" -> S03).
+   - Formato Pack: "Temporadas 1-4" -> "S01-S04".
+   - Formato Único: "Temporada 2" -> "S02". 
+   - En caso de no encontrar coincidencia de temporada, por defecto usa S01.
+4. TVDB: Inserta [tvdb-ID] justo después de la temporada.
+5. METADATOS TÉCNICOS: Mantén todos los corchetes finales [Codec, Calidad, Audio, Subs] exactamente como están.
 
-DATOS PARA PROCESAR:
+DATOS ACTUALES:
 - Título Crudo: {title}
 - Sinopsis del Tracker: {description}
-"""
-    if tvdb_candidates:
-        prompt += f"""
-CANDIDATOS DE TVDB:
-{tvdb_candidates}
+CANDIDATOS TVDB: {tvdb_candidates if tvdb_candidates else "No hay candidatos."}
 
-REGLA TVDB: Si hay coincidencia, devuelve su 'tvdb_id'. Usa el 'name' de TVDB como título principal.
-"""
-
-    prompt += """
 EJEMPLOS DE ÉXITO:
 
-Entrada (Pack):
-Título: [UnionFansub | sempai23] Vaca y Pollo (Temporadas 1-4) [MPEG2, 728x544 (DVD)] [Audio: Castellano, Latino]
-Salida: {
-    "translated_title": "[UnionFansub | sempai23] Vaca y Pollo S01-S04 [tvdb-76196] [MPEG2, 728x544 (DVD)] [Audio: Castellano, Latino]",
+ESCENARIO 1: PACK DE TEMPORADAS
+Entrada: [UnionFansub | User] Vaca y Pollo (Temporadas 1-4) [DVD] [Esp]
+Candidato: {{"tvdb_id": "76196", "name": "Vaca y Pollo"}}
+Salida: {{
+    "translated_title": "[UnionFansub | User] Vaca y Pollo S01-S04 [tvdb-76196] [DVD] [Esp]",
     "tvdb_id": "76196"
-}
+}}
 
-Entrada (Normalización Nombre):
-Título: [UnionFansub | Unmei] Campione!: Matsurowanu Kamigami to Kamigoroshi no Maou [1080p] [Jap-Esp]
-Opciones TVDB: [{"tvdb_id": "259646", "name": "Campione!"}]
-Salida: {
-    "translated_title": "[UnionFansub | Unmei] Campione! S01 [tvdb-259646] [1080p] [Jap-Esp]",
-    "tvdb_id": "259646"
-}
+ESCENARIO 2: TEMPORADA EN SINOPSIS (Título sin temporada)
+Entrada Título: [UnionFansub] Ataque a los Titanes [1080p]
+Sinopsis: "...en esta épica Tercera Temporada de la serie..."
+Candidato: {{"tvdb_id": "267440", "name": "Ataque a los Titanes"}}
+Salida: {{
+    "translated_title": "[UnionFansub] Ataque a los Titanes S03 [tvdb-267440] [1080p]",
+    "tvdb_id": "267440"
+}}
 
-FORMATO DE SALIDA: Responde ÚNICAMENTE con JSON puro.
-{
+ESCENARIO 3: MATCH POR ALIAS (Japonés -> Español)
+Entrada: [UnionFansub] Shingeki no Kyojin [720p]
+Candidato: {{"tvdb_id": "267440", "name": "Ataque a los Titanes", "aliases": ["Shingeki no Kyojin", "Attack on Titan"]}}
+Salida: {{
+    "translated_title": "[UnionFansub] Ataque a los Titanes S01 [tvdb-267440] [720p]",
+    "tvdb_id": "267440"
+}}
+
+Responde ÚNICAMENTE con JSON puro:
+{{
     "translated_title": "Título final",
-    "tvdb_id": "ID en string o null"
-}
-"""
+    "tvdb_id": "ID o null"
+}}"""
     return prompt
 
 """
 Limpia la respuesta de texto devuelta por el LLM, eliminando bloques de código 
 Markdown (```json) o caracteres adicionales, e intenta convertirla en un diccionario.
-
-Parámetros:
-    raw_text (str): Texto crudo devuelto por la Inteligencia Artificial.
-
-Retorna:
-    dict: Diccionario estructurado con el título traducido y el ID de TVDB.
-
-Excepciones:
-    ValueError: Si la respuesta final no es un JSON válido o parseable.
 """
 def _clean_and_parse_json(raw_text: str) -> dict:
     clean_text = re.sub(r"^```json\s*", "", raw_text.strip(), flags=re.IGNORECASE)

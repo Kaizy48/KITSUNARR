@@ -84,7 +84,7 @@ async def process_pending_tvdb():
             logger.error("⚠️ TVDB habilitado pero no se pudo obtener token.")
             return
 
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json","Accept-Language": "spa"}
         
         async with httpx.AsyncClient(timeout=20.0, headers=headers) as client:
             for t in pending_torrents:
@@ -113,13 +113,16 @@ async def process_pending_tvdb():
                         if results:
                             candidates = []
                             for r in results:
+                                aliases = r.get("aliases", [])
+                                
                                 candidates.append({
-                                    "tvdb_id": r.get("tvdb_id"),
-                                    "name": r.get("name"),
-                                    "year": r.get("year", "Desconocido"),
-                                    "overview": r.get("overview", "Sin sinopsis"),
-                                    "image_url": r.get("image_url")
-                                })
+                                "tvdb_id": r.get("tvdb_id"),
+                                "name": r.get("name"),
+                                "aliases": aliases, # <--- NUEVO
+                                "year": r.get("year", "Desconocido"),
+                                "status": r.get("status", "Desconocido"),
+                                "overview": r.get("overview", "Sin sinopsis")
+                            })
                                 
                             t.tvdb_candidates = json.dumps(candidates, ensure_ascii=False)
                             t.tvdb_status = "Candidatos"
