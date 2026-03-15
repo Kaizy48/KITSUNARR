@@ -1182,7 +1182,8 @@ async function saveIndexer() {
             closeModals();
             setTimeout(() => window.location.reload(), 1000);
         } else {
-            showToast("Error: No se pudo conectar al tracker. Revisa tu cookie.", false);
+            const errorMsg = data.error ? data.error : "Error desconocido al conectar con el tracker.";
+            showToast(errorMsg, false);
             btn.innerHTML = originalText;
             btn.disabled = false;
         }
