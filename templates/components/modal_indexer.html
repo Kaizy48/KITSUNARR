@@ -50,8 +50,12 @@
           </div>
           
           <div id="form-login" class="space-y-4 hidden">
-              <input type="text" id="user_val" placeholder="Usuario" class="w-full bg-black border rounded p-2.5 text-white outline-none mb-2" style="border-color: #452b7a" />
-              <input type="password" id="pass_val" placeholder="Contraseña" class="w-full bg-black border rounded p-2.5 text-white outline-none" style="border-color: #452b7a" />
+              <input type="text" id="user_val" placeholder="Usuario" class="w-full bg-black border rounded p-2.5 text-white outline-none mb-2" style="border-color: #452b7a" autocomplete="off" />
+              <input type="password" id="pass_val" placeholder="Contraseña" class="w-full bg-black border rounded p-2.5 text-white outline-none" style="border-color: #452b7a" autocomplete="new-password" />
+              
+              <p class="text-xs text-gray-400 mt-2">
+                  <i class="fa-solid fa-circle-info text-yellow-500 mr-1"></i> Kitsunarr usará estas credenciales para obtener la cookie de sesión automáticamente y mantenerla viva.
+              </p>
           </div>
       </div>
       <div class="px-6 py-4 flex justify-end space-x-3 border-t bg-black" style="border-color: #452b7a">
