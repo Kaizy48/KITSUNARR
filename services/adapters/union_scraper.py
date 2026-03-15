@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
+from core.tracker_login import auto_renew_cookie
 from core.database import engine
 from core.models.torrent import TorrentCache
 from core.logger import logger
@@ -215,7 +216,16 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
         async with httpx.AsyncClient(follow_redirects=False, headers=headers, timeout=30.0) as client:
             response = await client.get(url)
             if response.status_code == 302:
-                raise HTTPException(status_code=502, detail="Bloqueado por el tracker (302). Espera unos segundos.")
+                logger.warning("⚠️ El tracker devolvió 302 (Redirección). Posible cookie caducada.")
+                new_cookie = await auto_renew_cookie()
+                
+                if new_cookie:
+                    headers["Cookie"] = new_cookie
+                    response = await client.get(url, headers=headers)
+                
+            if response.status_code == 302:
+                raise HTTPException(status_code=502, detail="Bloqueado por el tracker. La cookie expiró y no se pudo auto-renovar.")
+                
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, "lxml")

@@ -20,6 +20,8 @@ from sqlmodel import Session, select
 from pydantic import BaseModel
 
 from core.database import engine, create_db_and_tables
+from core.tracker_login import attempt_unionfansub_login
+from core.tracker_login import auto_renew_cookie
 from services.adapters.union_scraper import search_unionfansub_html, test_unionfansub_connection
 from services.adapters.tvdb_scraper import process_pending_tvdb
 from core.models.indexer import IndexerConfig
@@ -266,10 +268,22 @@ async def proxy_download_torrent(guid: str):
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
+            
             content_type = resp.headers.get("Content-Type", "")
+            
             if "text/html" in content_type:
-                logger.error(f"❌ Error: Union Fansub denegó la descarga (devolvió HTML).")
-                return Response(content="Error: El tracker devolvió HTML en lugar del Torrent.", status_code=502)
+                logger.warning(f"⚠️ El tracker denegó la descarga de {guid} (Devolvió HTML). Intentando recuperar sesión...")
+                new_cookie = await auto_renew_cookie()
+                
+                if new_cookie:
+                    headers["Cookie"] = new_cookie
+                    resp = await client.get(url, headers=headers)
+                    resp.raise_for_status()
+                    content_type = resp.headers.get("Content-Type", "")
+                
+                if "text/html" in content_type:
+                    logger.error("❌ Fallo definitivo: Imposible descargar el torrent tras intento de rescate.")
+                    return Response(content="Error: Sesión caducada y sin auto-recuperación.", status_code=502)
 
             return Response(
                 content=resp.content, 
@@ -628,8 +642,10 @@ class IndexerForm(BaseModel):
     password: str = ""
 
 """
-Guarda las credenciales de un indexador (cookie o login) en la BD local 
-y ejecuta un ping automático para actualizar su estado de conexión.
+Recibe y procesa el formulario de configuración de un indexador desde la interfaz web.
+Si el usuario elige el método 'Auto-Login', intercepta la petición para robar la cookie 
+maestra en tiempo real antes de guardar las credenciales en la base de datos local.
+Finalmente, ejecuta un test de red para verificar la conectividad de la sesión obtenida.
 """
 @app.post("/api/ui/indexer")
 async def save_indexer(data: IndexerForm):
@@ -638,13 +654,36 @@ async def save_indexer(data: IndexerForm):
         if not indexer:
             indexer = IndexerConfig(name="Union Fansub", identifier="unionfansub", auth_type=data.auth_type)
             session.add(indexer)
-        indexer.auth_type = data.auth_type
-        indexer.cookie_string = data.cookie_string
-        indexer.username = data.username
-        indexer.password = data.password
-        is_ok = await test_unionfansub_connection(data.cookie_string)
+            
+        if data.auth_type == "login":
+            if not data.username or not data.password:
+                return {"success": False, "error": "Debes proporcionar usuario y contraseña para el Auto-Login."}
+
+            full_cookie_string = await attempt_unionfansub_login(data.username, data.password)
+            
+            if full_cookie_string:
+                indexer.auth_type = "login"
+                indexer.cookie_string = full_cookie_string
+                indexer.username = data.username
+                indexer.password = data.password
+            else:
+                return {"success": False, "error": "Credenciales incorrectas o el tracker bloqueó la conexión."}
+        else:
+            indexer.auth_type = "cookie"
+            indexer.cookie_string = data.cookie_string
+            indexer.username = None
+            indexer.password = None
+
+        is_ok = await test_unionfansub_connection(indexer.cookie_string)
         indexer.status = "ok" if is_ok else "error"
         session.commit()
+        
+        if not is_ok:
+            return {
+                "success": False, 
+                "error": "No se pudo conectar al tracker. La sesión expiró o la cookie es inválida."
+            }
+            
         return {"success": True, "status": indexer.status}
 
 """
