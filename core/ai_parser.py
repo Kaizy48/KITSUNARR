@@ -248,13 +248,13 @@ Retorna:
 async def call_ai_provider(prompt: str, config: AIConfig) -> str:
     async with httpx.AsyncClient(timeout=45.0) as client:
         if config.provider == "gemini":
-            url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){config.model_name}:generateContent?key={config.api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.model_name}:generateContent?key={config.api_key}"
             resp = await client.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
             resp.raise_for_status()
             return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
             
         elif config.provider == "openai":
-            url = f"[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)"
+            url = f"https://api.openai.com/v1/chat/completions"
             headers = {"Authorization": f"Bearer {config.api_key}"}
             payload = {"model": config.model_name, "messages": [{"role": "user", "content": prompt}]}
             resp = await client.post(url, headers=headers, json=payload)
