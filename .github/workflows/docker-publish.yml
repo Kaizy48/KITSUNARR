@@ -2,7 +2,7 @@ name: Build and Publish Docker Image
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
     tags: [ 'v*.*.*' ]
 
 jobs:
@@ -22,7 +22,11 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/kitsunarr
           tags: |
+            # Etiqueta 'latest' solo cuando se sube a main
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # Etiqueta 'develop' solo cuando se sube a develop
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            # Mantener el versionado semántico para los tags
             type=semver,pattern={{version}}
 
       - name: Log in to GHCR

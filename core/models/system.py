@@ -42,7 +42,7 @@ class AIConfig(SQLModel, table=True):
     is_enabled: bool = False
     is_automated: bool = False
     provider: str = "gemini"
-    model_name: str = "gemini-1.5-flash"
+    model_name: str = "gemini-2.5-flash"
     api_key: str = ""
     base_url: str = "http://localhost:11434"
     custom_prompt: Optional[str] = Field(default=None)

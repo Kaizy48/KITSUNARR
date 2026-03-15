@@ -237,36 +237,73 @@ def _clean_and_parse_json(raw_text: str) -> dict:
 """
 Realiza la llamada HTTP asíncrona al proveedor de IA correspondiente 
 adaptando el formato de la petición a las especificaciones de cada API.
-
-Parámetros:
-    prompt (str): Texto completo con las instrucciones para el LLM.
-    config (AIConfig): Objeto con las credenciales, URL base y nombre del modelo.
-
-Retorna:
-    str: El contenido en texto puro generado por el LLM.
 """
 async def call_ai_provider(prompt: str, config: AIConfig) -> str:
-    async with httpx.AsyncClient(timeout=45.0) as client:
+    """
+    Realiza la llamada HTTP asíncrona a la API estable (v1) de Gemini o OpenAI.
+    """
+    timeout = httpx.Timeout(45.0, connect=10.0)
+    
+    async with httpx.AsyncClient(timeout=timeout) as client:
         if config.provider == "gemini":
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.model_name}:generateContent?key={config.api_key}"
-            resp = await client.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
-            resp.raise_for_status()
-            return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            model_clean = config.model_name.strip().replace("models/", "")
+            
+            url = f"https://generativelanguage.googleapis.com/v1/models/{model_clean}:generateContent"
+            params = {"key": config.api_key.strip()}
+            
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}]
+            }
+            
+            response = await client.post(url, params=params, json=payload)
+            
+            if response.status_code != 200:
+                logger.error(f"❌ Error Gemini ({response.status_code}): {response.text}")
+                response.raise_for_status()
+                
+            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
             
         elif config.provider == "openai":
-            url = f"https://api.openai.com/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {config.api_key}"}
-            payload = {"model": config.model_name, "messages": [{"role": "user", "content": prompt}]}
-            resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {config.api_key.strip()}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": config.model_name.strip(), 
+                "messages": [{"role": "user", "content": prompt}]
+            }
+            
+            response = await client.post(url, headers=headers, json=payload)
+            if response.status_code != 200:
+                logger.error(f"❌ Error OpenAI ({response.status_code}): {response.text}")
+                response.raise_for_status()
+                
+            return response.json()["choices"][0]["message"]["content"]
             
         elif config.provider == "ollama":
             url = f"{config.base_url.rstrip('/')}/api/chat"
-            payload = {"model": config.model_name, "messages": [{"role": "user", "content": prompt}], "stream": False}
+            payload = {"model": config.model_name.strip(), "messages": [{"role": "user", "content": prompt}], "stream": False}
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             return resp.json()["message"]["content"]
             
         else:
-            raise ValueError("Proveedor no soportado.")
+            raise ValueError(f"Proveedor '{config.provider}' no soportado.")
+
+async def test_ai_connection(config: AIConfig) -> str:
+    """
+    Lanza un test de conexión y, en caso de fallo 404, intenta listar los modelos 
+    disponibles para ayudar al usuario a diagnosticar el error.
+    """
+    try:
+        prompt = "Responde únicamente: OK"
+        return await call_ai_provider(prompt, config)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404 and config.provider == "gemini":
+            diag_url = f"https://generativelanguage.googleapis.com/v1/models?key={config.api_key.strip()}"
+            async with httpx.AsyncClient() as client:
+                diag_resp = await client.get(diag_url)
+                logger.error(f"🔍 [DIAGNÓSTICO GEMINI] Tu API Key tiene acceso a estos modelos: {diag_resp.text}")
+            raise Exception("Error 404: El modelo no existe o no tienes acceso. Revisa el log para ver la lista de modelos disponibles.")
+        raise e
