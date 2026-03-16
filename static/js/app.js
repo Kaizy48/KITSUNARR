@@ -179,6 +179,9 @@ function populateAndOpenDualModal(torrentObj) {
     const btnForceAi = document.getElementById('btn_force_ai');
     btnForceAi.onclick = () => forceSingleAIProcess(torrentObj.guid);
 
+    const btnForceTvdb = document.getElementById('btn_force_tvdb');
+    btnForceTvdb.onclick = () => forceSingleTVDBProcess(torrentObj.guid);
+
     const posterContainer = document.getElementById('info_poster');
     const placeholder = document.getElementById('info_poster_placeholder');
     if (torrentObj.poster_url) {
@@ -410,13 +413,16 @@ function toggleAIFields() {
     
     const keyContainer = document.getElementById('ai_key_container');
     const urlContainer = document.getElementById('ai_url_container');
+    const limitsContainer = document.getElementById('ai_limits_container');
     
     if (provider.value === 'ollama') {
         keyContainer.classList.add('hidden');
         urlContainer.classList.remove('hidden');
+        if(limitsContainer) limitsContainer.classList.add('hidden');
     } else {
         keyContainer.classList.remove('hidden');
         urlContainer.classList.add('hidden');
+        if(limitsContainer) limitsContainer.classList.remove('hidden');
     }
 }
 
@@ -449,6 +455,10 @@ async function saveAIConfig() {
     const model = document.getElementById('ai_model').value;
     const key = document.getElementById('ai_key').value;
     const url = document.getElementById('ai_url').value;
+    
+    const rpm = parseInt(document.getElementById('ai_rpm').value) || 5;
+    const tpm = parseInt(document.getElementById('ai_tpm').value) || 250000;
+    const rpd = parseInt(document.getElementById('ai_rpd').value) || 20;
 
     const btn = document.querySelector('button[onclick="saveAIConfig()"]');
     const originalText = btn.innerHTML;
@@ -459,7 +469,15 @@ async function saveAIConfig() {
         const res = await fetch('/api/ui/ai/config', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ provider: provider, model_name: model, api_key: key, base_url: url })
+            body: JSON.stringify({ 
+                provider: provider, 
+                model_name: model, 
+                api_key: key, 
+                base_url: url,
+                rpm_limit: rpm,
+                tpm_limit: tpm,
+                rpd_limit: rpd
+            })
         });
         const data = await res.json();
         
@@ -471,7 +489,7 @@ async function saveAIConfig() {
                 document.getElementById('ping_url').value = url;
                 togglePingFields();
             }
-            showToast("Conexión de IA guardada.");
+            showToast("Conexión de IA y límites guardados.");
             btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Guardado';
             setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 2000);
         } else {
@@ -785,8 +803,17 @@ function renderCacheGrid(data) {
 
         let fansubTag = t.fansub_name ? `[${t.fansub_name}]` : `[UnionFansub]`;
         
-        let iaIcon = t.ai_status === 'Listo' ? '<i class="fa-solid fa-robot text-green-500" title="IA Lista"></i>' : (t.ai_status === 'Manual' ? '<i class="fa-solid fa-user-pen text-purple-400" title="IA Editada Manual"></i>' : '<i class="fa-solid fa-robot text-gray-600" title="IA Pendiente"></i>');
-        let tvdbIcon = t.tvdb_status === 'Listo' ? '<i class="fa-solid fa-tv text-blue-500" title="TVDB Validado"></i>' : (t.tvdb_status === 'Candidatos' ? '<i class="fa-solid fa-tv text-purple-400" title="TVDB Candidatos Listos"></i>' : '<i class="fa-solid fa-tv text-gray-600" title="TVDB Pendiente"></i>');
+        let iaIcon = '';
+        if (t.ai_status === 'Listo') iaIcon = '<i class="fa-solid fa-check text-green-500" title="IA Lista"></i>';
+        else if (t.ai_status === 'Manual') iaIcon = '<i class="fa-solid fa-user-pen text-purple-400" title="IA Editada Manualmente"></i>';
+        else if (t.ai_status === 'Error') iaIcon = '<i class="fa-solid fa-xmark text-red-500" title="Error IA"></i>';
+        else iaIcon = '<i class="fa-solid fa-robot text-gray-600" title="IA Pendiente"></i>';
+
+        let tvdbIcon = '';
+        if (t.tvdb_status === 'Listo') tvdbIcon = '<i class="fa-solid fa-check text-green-500" title="TVDB Validado"></i>';
+        else if (t.tvdb_status === 'Revisión Manual' || t.tvdb_status === 'Manual') tvdbIcon = '<i class="fa-solid fa-user-pen text-purple-400" title="TVDB Editado Manualmente"></i>';
+        else if (t.tvdb_status === 'Error' || t.tvdb_status === 'No Encontrado') tvdbIcon = '<i class="fa-solid fa-xmark text-red-500" title="Error TVDB"></i>';
+        else tvdbIcon = '<i class="fa-solid fa-tv text-gray-600" title="TVDB Pendiente / Candidatos"></i>';
 
         const posterUrl = t.poster_url ? `/api/ui/poster?url=${encodeURIComponent(t.poster_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
 
@@ -1007,9 +1034,17 @@ function renderSearchResults(results) {
 
         let fansubTag = t.fansub_name ? `[${t.fansub_name}]` : `[UnionFansub]`;
         
-        // Iconos de estado
-        let iaIcon = t.ai_status === 'Listo' ? '<i class="fa-solid fa-robot text-green-500" title="IA Lista"></i>' : (t.ai_status === 'Manual' ? '<i class="fa-solid fa-user-pen text-purple-400" title="IA Editada Manual"></i>' : '<i class="fa-solid fa-robot text-gray-600" title="IA Pendiente"></i>');
-        let tvdbIcon = t.tvdb_status === 'Listo' ? '<i class="fa-solid fa-tv text-blue-500" title="TVDB Validado"></i>' : (t.tvdb_status === 'Candidatos' ? '<i class="fa-solid fa-tv text-purple-400" title="TVDB Candidatos Listos"></i>' : '<i class="fa-solid fa-tv text-gray-600" title="TVDB Pendiente"></i>');
+        let iaIcon = '';
+        if (t.ai_status === 'Listo') iaIcon = '<i class="fa-solid fa-check text-green-500" title="IA Lista"></i>';
+        else if (t.ai_status === 'Manual') iaIcon = '<i class="fa-solid fa-user-pen text-purple-400" title="IA Editada Manualmente"></i>';
+        else if (t.ai_status === 'Error') iaIcon = '<i class="fa-solid fa-xmark text-red-500" title="Error IA"></i>';
+        else iaIcon = '<i class="fa-solid fa-robot text-gray-600" title="IA Pendiente"></i>';
+
+        let tvdbIcon = '';
+        if (t.tvdb_status === 'Listo') tvdbIcon = '<i class="fa-solid fa-check text-green-500" title="TVDB Validado"></i>';
+        else if (t.tvdb_status === 'Revisión Manual' || t.tvdb_status === 'Manual') tvdbIcon = '<i class="fa-solid fa-user-pen text-purple-400" title="TVDB Editado Manualmente"></i>';
+        else if (t.tvdb_status === 'Error' || t.tvdb_status === 'No Encontrado') tvdbIcon = '<i class="fa-solid fa-xmark text-red-500" title="Error TVDB"></i>';
+        else tvdbIcon = '<i class="fa-solid fa-tv text-gray-600" title="TVDB Pendiente / Candidatos"></i>';
 
         const posterUrl = t.poster_url ? `/api/ui/poster?url=${encodeURIComponent(t.poster_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
 
@@ -1071,6 +1106,19 @@ async function forceSingleAIProcess(guid) {
     } catch(e) {
         showToast("Error de red forzando IA.", false);
     }
+}
+
+async function forceSingleTVDBProcess(guid) {
+    showToast("Forzando búsqueda de candidatos en TVDB...");
+    try {
+        const res = await fetch('/api/ui/tvdb/force_specific', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ guids: [guid] })
+        });
+        const data = await res.json();
+        if(data.success) {
+            showToast("Búsqueda en TVDB finalizada. Refresca la vista.");
+        } else { showToast(data.error, false); }
+    } catch(e) { showToast("Error de red forzando TVDB.", false); }
 }
 
 // ==========================================

@@ -10,6 +10,7 @@ from core.database import engine
 from core.models.torrent import TorrentCache
 from core.models.system import AIConfig, SystemConfig
 from services.adapters.tvdb_scraper import fetch_full_tvdb_series 
+from datetime import datetime, timedelta
 
 # ==========================================
 # PROCESAMIENTO AUTOMÁTICO INDIVIDUAL (1 a 1)
@@ -28,21 +29,30 @@ async def process_pending_torrents(specific_guids: list[str] = None):
         if not config or not config.is_enabled: return 
         if not specific_guids and not config.is_automated: return 
         
-        if specific_guids:
-            pending_torrents = session.exec(select(TorrentCache).where(TorrentCache.guid.in_(specific_guids)).limit(5)).all()
-        else:
-            query = select(TorrentCache).where(TorrentCache.ai_status == "Pendiente")
+        if not specific_guids:
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            processed_today = session.exec(
+                select(TorrentCache).where(
+                    (TorrentCache.ai_status.in_(["Listo", "Error"])) & 
+                    (TorrentCache.updated_at >= today_start)
+                )
+            ).all()
             
-            if sys_config and sys_config.tvdb_api_key and sys_config.tvdb_is_enabled:
-                query = query.where(TorrentCache.tvdb_status == "Candidatos")
-                
-            pending_torrents = session.exec(query.limit(5)).all()
-            
+            if len(processed_today) >= config.rpd_limit:
+                logger.warning(f"⏸️ Límite diario de IA alcanzado ({config.rpd_limit}/{config.rpd_limit}). En pausa hasta mañana.")
+                return
+
+        delay_between_requests = 60.0 / config.rpm_limit if config.rpm_limit > 0 else 0
+        
         if not pending_torrents: return 
         
         success_count = 0
         
-        for t in pending_torrents:
+        for i, t in enumerate(pending_torrents):
+            if i > 0 and delay_between_requests > 0:
+                logger.info(f"⏱️ Control RPM: Esperando {delay_between_requests:.1f}s para no saturar la API...")
+                await asyncio.sleep(delay_between_requests)
+                
             logger.info(f"🧠 Enviando a IA: '{t.enriched_title}' (GUID: {t.guid})")
             
             prompt = _build_single_prompt(

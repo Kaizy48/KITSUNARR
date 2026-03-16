@@ -25,6 +25,7 @@ from core.tracker_login import attempt_unionfansub_login
 from core.tracker_login import auto_renew_cookie
 from services.adapters.union_scraper import search_unionfansub_html, test_unionfansub_connection
 from services.adapters.tvdb_scraper import process_pending_tvdb
+from services.adapters.tvdb_scraper import clean_for_tvdb, _tvdb_search
 from core.models.indexer import IndexerConfig
 from core.models.torrent import TorrentCache
 from core.models.system import SystemConfig, AIConfig
@@ -537,9 +538,12 @@ class AIConfigForm(BaseModel):
     model_name: str
     api_key: str
     base_url: str
+    rpm_limit: int = 5
+    tpm_limit: int = 250000
+    rpd_limit: int = 20
 
 """
-Recibe los detalles de conexión técnicos del LLM (API key, URL, proveedor)
+Recibe los detalles de conexión técnicos del LLM (API key, URL, proveedor, límites)
 y los almacena de forma persistente.
 """
 @app.post("/api/ui/ai/config")
@@ -554,10 +558,14 @@ async def save_ai_config(data: AIConfigForm):
         conf.api_key = data.api_key
         conf.base_url = data.base_url
         
+        conf.rpm_limit = data.rpm_limit
+        conf.tpm_limit = data.tpm_limit
+        conf.rpd_limit = data.rpd_limit
+        
         session.add(conf) 
         session.commit()
         
-        logger.info("⚙️ Ajustes técnicos de IA guardados exitosamente.")
+        logger.info("⚙️ Ajustes técnicos y de cuota de IA guardados exitosamente.")
         return {"success": True}
 
 class ForceSpecificAIRequest(BaseModel):
@@ -578,6 +586,44 @@ async def force_ai_process_specific(data: ForceSpecificAIRequest):
 class TestAIRequest(BaseModel):
     guid: str
     config: AIConfigForm
+
+"""
+Fuerza una nueva búsqueda de candidatos en TheTVDB para un torrent específico, 
+reiniciando su estado por si falló anteriormente.
+"""
+@app.post("/api/ui/tvdb/force_specific")
+async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        if not config or not config.tvdb_api_key:
+            return {"success": False, "error": "TVDB no está configurado."}
+            
+        for guid in data.guids:
+            t = session.exec(select(TorrentCache).where(TorrentCache.guid == guid)).first()
+            if t:
+                query = clean_for_tvdb(t.original_title)
+                try:
+                    results = await asyncio.to_thread(_tvdb_search, config.tvdb_api_key, query)
+                    if results:
+                        candidates = []
+                        for r in results:
+                            raw_aliases = r.get("aliases", [])
+                            clean_aliases = [a.get("name") if isinstance(a, dict) else a for a in raw_aliases] if raw_aliases else []
+                            candidates.append({
+                                "tvdb_id": str(r.get("tvdb_id")), "name": r.get("name"),
+                                "aliases": clean_aliases, "image_url": r.get("image_url")
+                            })
+                        t.tvdb_candidates = json.dumps(candidates, ensure_ascii=False)
+                        t.tvdb_status = "Candidatos"
+                        t.ai_status = "Pendiente"
+                    else:
+                        t.tvdb_status = "No Encontrado"
+                        t.ai_status = "Manual"
+                    session.commit()
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+                    
+        return {"success": True}
 
 """
 Realiza una prueba aislada procesando un único torrent de la caché con los parámetros
