@@ -9,18 +9,13 @@ from datetime import datetime
 from core.logger import logger
 from sqlmodel import Session, select
 from core.database import engine
-from core.models.torrent import TorrentCache, TVDBCache
 from core.models.system import SystemConfig
+from core.models.torrent import TorrentCache, TVDBCache, TorrentTVDBCandidates, TVDBEpisodes
+from sqlmodel import Session, select, delete
 
 """
 Limpia el título original del tracker eliminando etiquetas entre corchetes, paréntesis 
 y menciones de temporada para generar una cadena de búsqueda óptima en TheTVDB.
-
-Parámetros:
-    title (str): Título original extraído del torrent.
-
-Retorna:
-    str: Título limpio preparado para la API.
 """
 def clean_for_tvdb(title: str) -> str:
     clean = re.sub(r"\[.*?\]|\(.*?\)", "", title)
@@ -32,8 +27,6 @@ def clean_for_tvdb(title: str) -> str:
 # ==========================================
 # WRAPPERS SINCRONOS PARA LA LIBRERÍA TVDB
 # ==========================================
-# La librería oficial usa 'requests' (síncrono). Envolvemos las llamadas 
-# para ejecutarlas en hilos y no bloquear el event loop de FastAPI.
 
 def _tvdb_search(api_key: str, query: str):
     tvdb = tvdb_v4_official.TVDB(api_key)
@@ -49,13 +42,13 @@ def _tvdb_get_translations(api_key: str, tvdb_id: str, lang: str):
 
 
 # ==========================================
-# FLUJO 1: BÚSQUEDA DE CANDIDATOS
+# FLUJO 1: BÚSQUEDA Y CREACIÓN DE CANDIDATOS
 # ==========================================
 
 """
-Procesa de forma automatizada los torrents pendientes de vinculación buscando 
-posibles coincidencias (candidatos) en TheTVDB.
-Almacena un JSON con los resultados en la caché del torrent para su posterior uso por la IA.
+Procesa los torrents pendientes buscando coincidencias (candidatos) en TheTVDB.
+Ahora utiliza un modelo relacional en lugar de JSONs, creando "Fichas Básicas" 
+en TVDBCache y enlazándolas al Torrent mediante TorrentTVDBCandidates.
 """
 async def process_pending_tvdb():
     with Session(engine) as session:
@@ -78,24 +71,39 @@ async def process_pending_tvdb():
             try:
                 results = await asyncio.to_thread(_tvdb_search, config.tvdb_api_key, query)
                 if results:
-                    candidates = []
                     for r in results:
-                        raw_aliases = r.get("aliases", [])
-                        clean_aliases = [a.get("name") if isinstance(a, dict) else a for a in raw_aliases] if raw_aliases else []
+                        tvdb_id_str = str(r.get("tvdb_id"))
                         
-                        candidates.append({
-                            "tvdb_id": str(r.get("tvdb_id")),
-                            "name": r.get("name"),
-                            "aliases": clean_aliases, 
-                            "year": r.get("year", "Desconocido"),
-                            "status": r.get("status", "Desconocido"),
-                            "overview": r.get("overview", "Sin sinopsis"),
-                            "image_url": r.get("image_url")
-                        })
+                        existing_show = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == tvdb_id_str)).first()
                         
-                    t.tvdb_candidates = json.dumps(candidates, ensure_ascii=False)
+                        if not existing_show:
+                            raw_aliases = r.get("aliases", [])
+                            clean_aliases = [a.get("name") if isinstance(a, dict) else a for a in raw_aliases] if raw_aliases else []
+                            
+                            new_show = TVDBCache(
+                                tvdb_id=tvdb_id_str,
+                                series_name_es=r.get("name", "Desconocido"),
+                                aliases=json.dumps(clean_aliases, ensure_ascii=False),
+                                overview_basic=r.get("overview", "Sin sinopsis"),
+                                poster_path=r.get("image_url"),
+                                first_aired=r.get("year", "Desconocido"),
+                                status=r.get("status", "Desconocido"),
+                                is_full_record=False
+                            )
+                            session.add(new_show)
+                            session.commit()
+                        
+                        link = session.exec(select(TorrentTVDBCandidates).where(
+                            TorrentTVDBCandidates.torrent_guid == t.guid,
+                            TorrentTVDBCandidates.tvdb_id == tvdb_id_str
+                        )).first()
+                        
+                        if not link:
+                            new_link = TorrentTVDBCandidates(torrent_guid=t.guid, tvdb_id=tvdb_id_str)
+                            session.add(new_link)
+                        
                     t.tvdb_status = "Candidatos"
-                    logger.info(f"✅ Encontrados {len(candidates)} candidatos.")
+                    logger.info(f"✅ Enlazados {len(results)} candidatos en base de datos para '{query}'.")
                 else:
                     t.tvdb_status = "No Encontrado"
                     t.ai_status = "Manual"
@@ -113,13 +121,8 @@ async def process_pending_tvdb():
 # ==========================================
 
 """
-Descarga toda la información detallada de una serie confirmada y la guarda 
-en la tabla TVDBCache para construir la biblioteca local persistente.
-
-Parámetros:
-    tvdb_id (str): Identificador oficial de la serie.
-    session (Session): Sesión activa de base de datos.
-    config (SystemConfig): Configuración con la API Key.
+Descarga toda la información detallada de una serie confirmada y actualiza
+la Ficha Básica transformándola en una Ficha Maestra (is_full_record=True).
 """
 async def fetch_full_tvdb_series(tvdb_id: str, session: Session, config: SystemConfig):
     if not config.tvdb_api_key: return
@@ -141,19 +144,87 @@ async def fetch_full_tvdb_series(tvdb_id: str, session: Session, config: SystemC
 
         raw_aliases = data.get("aliases", [])
         clean_aliases = [a.get("name") if isinstance(a, dict) else a for a in raw_aliases] if raw_aliases else []
-
-        new_entry = TVDBCache(
-            tvdb_id=str(tvdb_id), series_name_es=name_es, series_name_en=data.get("name"),
-            aliases=json.dumps(clean_aliases, ensure_ascii=False),
-            overview_es=overview_es, overview_en=data.get("overview"),
-            poster_path=data.get("image"), status=data.get("status", {}).get("name", "Desconocido"),
-            first_aired=data.get("firstAired"), seasons_data=json.dumps(seasons_dict, ensure_ascii=False),
-            last_updated=datetime.utcnow()
-        )
-        session.merge(new_entry)
+        existing_show = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == str(tvdb_id))).first()
+        
+        if existing_show:
+            existing_show.series_name_es = name_es
+            existing_show.series_name_en = data.get("name")
+            existing_show.aliases = json.dumps(clean_aliases, ensure_ascii=False)
+            existing_show.overview_es = overview_es
+            existing_show.overview_en = data.get("overview")
+            existing_show.poster_path = data.get("image")
+            existing_show.status = data.get("status", {}).get("name", "Desconocido")
+            existing_show.first_aired = data.get("firstAired")
+            existing_show.seasons_data = json.dumps(seasons_dict, ensure_ascii=False)
+            existing_show.is_full_record = True
+            existing_show.last_updated = datetime.utcnow()
+            session.add(existing_show)
+        else:
+            new_entry = TVDBCache(
+                tvdb_id=str(tvdb_id), series_name_es=name_es, series_name_en=data.get("name"),
+                aliases=json.dumps(clean_aliases, ensure_ascii=False),
+                overview_es=overview_es, overview_en=data.get("overview"),
+                poster_path=data.get("image"), status=data.get("status", {}).get("name", "Desconocido"),
+                first_aired=data.get("firstAired"), seasons_data=json.dumps(seasons_dict, ensure_ascii=False),
+                is_full_record=True,
+                last_updated=datetime.utcnow()
+            )
+            session.add(new_entry)
+            
         session.commit()
-        
         logger.info(f"📚 [BIBLIOTECA TVDB] Ficha maestra creada/actualizada: '{name_es}' (ID: {tvdb_id})")
-        
+ 
     except Exception as e:
         logger.error(f"❌ Error construyendo la ficha extendida para ID {tvdb_id}: {e}")
+        
+def _tvdb_get_episodes_page(api_key: str, tvdb_id: str, page: int):
+    tvdb = tvdb_v4_official.TVDB(api_key)
+    return tvdb.get_series_episodes(tvdb_id, page=page, season_type="default")
+
+"""
+Descarga todos los episodios de una serie iterando por las páginas de la API
+y los almacena en la tabla relacional TVDBEpisodes.
+"""
+async def fetch_tvdb_episodes(tvdb_id: str, session: Session, config: SystemConfig):
+    if not config.tvdb_api_key: return
+    
+    logger.info(f"📥 Descargando capítulos para la serie ID {tvdb_id}...")
+    try:
+        page = 0
+        has_more = True
+        total_episodes = 0
+        session.exec(delete(TVDBEpisodes).where(TVDBEpisodes.tvdb_id == str(tvdb_id)))
+        
+        while has_more:
+            data = await asyncio.to_thread(_tvdb_get_episodes_page, config.tvdb_api_key, tvdb_id, page)
+            if not data or "episodes" not in data:
+                break
+                
+            episodes_list = data["episodes"]
+            if not episodes_list:
+                break
+                
+            for ep in episodes_list:
+                season_num = ep.get("seasonNumber")
+                ep_num = ep.get("number")
+                
+                if season_num is not None and ep_num is not None and int(season_num) > 0:
+                    new_ep = TVDBEpisodes(
+                        tvdb_id=str(tvdb_id),
+                        season_number=int(season_num),
+                        episode_number=int(ep_num),
+                        name_es=ep.get("name") or ep.get("nameTranslated") or f"Episodio {ep_num}",
+                        air_date=ep.get("aired")
+                    )
+                    session.add(new_ep)
+                    total_episodes += 1
+            
+            page += 1
+            if page > 20 or len(episodes_list) < 100: 
+                has_more = False
+        
+        session.commit()
+        logger.info(f"✅ Guardados {total_episodes} episodios en la base de datos para la serie {tvdb_id}.")
+        
+    except Exception as e:
+        logger.error(f"❌ Error descargando episodios para ID {tvdb_id}: {e}")

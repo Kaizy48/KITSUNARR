@@ -5,12 +5,12 @@ import httpx
 import json
 import re
 from core.logger import logger
-from sqlmodel import Session, select
+from sqlmodel import Session, select, delete
 from core.database import engine
-from core.models.torrent import TorrentCache
 from core.models.system import AIConfig, SystemConfig
-from services.adapters.tvdb_scraper import fetch_full_tvdb_series 
 from datetime import datetime, timedelta
+from core.models.torrent import TorrentCache, TVDBCache, TorrentTVDBCandidates
+from services.adapters.tvdb_scraper import fetch_full_tvdb_series, fetch_tvdb_episodes 
 
 # ==========================================
 # PROCESAMIENTO AUTOMÁTICO INDIVIDUAL (1 a 1)
@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 """
 Procesa de forma automatizada o manual un lote de torrents pendientes, utilizando 
 el proveedor de Inteligencia Artificial configurado. Recupera metadatos, cruza 
-información con candidatos de TheTVDB y actualiza la base de datos con los resultados.
+información con la tabla de candidatos de TheTVDB y actualiza la base de datos.
 """
 async def process_pending_torrents(specific_guids: list[str] = None):
     with Session(engine) as session:
@@ -29,7 +29,10 @@ async def process_pending_torrents(specific_guids: list[str] = None):
         if not config or not config.is_enabled: return 
         if not specific_guids and not config.is_automated: return 
         
-        if not specific_guids:
+        if specific_guids:
+            pending_torrents = session.exec(select(TorrentCache).where(TorrentCache.guid.in_(specific_guids))).all()
+            delay_between_requests = 0
+        else:
             today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
             processed_today = session.exec(
                 select(TorrentCache).where(
@@ -42,7 +45,13 @@ async def process_pending_torrents(specific_guids: list[str] = None):
                 logger.warning(f"⏸️ Límite diario de IA alcanzado ({config.rpd_limit}/{config.rpd_limit}). En pausa hasta mañana.")
                 return
 
-        delay_between_requests = 60.0 / config.rpm_limit if config.rpm_limit > 0 else 0
+            delay_between_requests = 60.0 / config.rpm_limit if config.rpm_limit > 0 else 0
+            
+            query = select(TorrentCache).where(TorrentCache.ai_status == "Pendiente")
+            if sys_config and sys_config.tvdb_api_key and sys_config.tvdb_is_enabled:
+                query = query.where(TorrentCache.tvdb_status == "Candidatos")
+            
+            pending_torrents = session.exec(query.limit(5)).all()
         
         if not pending_torrents: return 
         
@@ -55,10 +64,29 @@ async def process_pending_torrents(specific_guids: list[str] = None):
                 
             logger.info(f"🧠 Enviando a IA: '{t.enriched_title}' (GUID: {t.guid})")
             
+            candidates_db = session.exec(
+                select(TVDBCache)
+                .join(TorrentTVDBCandidates)
+                .where(TorrentTVDBCandidates.torrent_guid == t.guid)
+            ).all()
+            
+            candidates_list = []
+            for c in candidates_db:
+                aliases_list = json.loads(c.aliases) if c.aliases else []
+                candidates_list.append({
+                    "tvdb_id": str(c.tvdb_id),
+                    "name": c.series_name_es,
+                    "aliases": aliases_list,
+                    "year": c.first_aired,
+                    "overview": c.overview_basic
+                })
+            
+            candidates_json_str = json.dumps(candidates_list, ensure_ascii=False) if candidates_list else None
+            
             prompt = _build_single_prompt(
                 title=t.enriched_title, 
                 description=t.description or "Sin descripción", 
-                tvdb_candidates=t.tvdb_candidates,
+                tvdb_candidates=candidates_json_str,
                 custom_prompt=config.custom_prompt
             )
             
@@ -77,13 +105,14 @@ async def process_pending_torrents(specific_guids: list[str] = None):
                     t.tvdb_id = str(chosen_tvdb_id)
                     t.tvdb_status = "Listo"
                     
-                    t.tvdb_candidates = None
-                    logger.info(f"🧹 Limpieza: Candidatos JSON eliminados para {t.guid} (Match exitoso).")
+                    session.exec(delete(TorrentTVDBCandidates).where(TorrentTVDBCandidates.torrent_guid == t.guid))
+                    logger.info(f"🧹 Limpieza: Relaciones temporales eliminadas para {t.guid} (Match exitoso).")
                     
                     if sys_config and sys_config.tvdb_is_enabled and sys_config.tvdb_api_key:
                         await fetch_full_tvdb_series(t.tvdb_id, session, sys_config)
+                        await fetch_tvdb_episodes(t.tvdb_id, session, sys_config)
                         
-                elif t.tvdb_candidates:
+                elif candidates_list:
                     t.tvdb_status = "Revisión Manual"
                 
                 session.commit()
@@ -101,15 +130,32 @@ async def process_pending_torrents(specific_guids: list[str] = None):
             logger.info(f"✅ Ciclo de IA completado ({success_count}/{len(pending_torrents)}).")
 
 """
-Realiza una prueba aislada del motor de IA con un torrent específico, sin guardar 
-los cambios en la base de datos. Se utiliza en el entorno de pruebas de la interfaz web.
+Realiza una prueba aislada del motor de IA con un torrent específico, simulando 
+los candidatos relacionales y devolviendo el JSON sin guardar cambios.
 """
 async def test_single_torrent_ai(guid: str, title: str, description: str, config: AIConfig) -> str:
     with Session(engine) as session:
         t = session.exec(select(TorrentCache).where(TorrentCache.guid == guid)).first()
-        candidates = t.tvdb_candidates if t else None
+        if not t:
+            raise Exception("Torrent no encontrado")
+            
+        candidates_db = session.exec(
+            select(TVDBCache)
+            .join(TorrentTVDBCandidates)
+            .where(TorrentTVDBCandidates.torrent_guid == t.guid)
+        ).all()
+        
+        candidates_list = []
+        for c in candidates_db:
+            aliases_list = json.loads(c.aliases) if c.aliases else []
+            candidates_list.append({
+                "tvdb_id": str(c.tvdb_id), "name": c.series_name_es,
+                "aliases": aliases_list, "year": c.first_aired, "overview": c.overview_basic
+            })
+        
+        candidates_json_str = json.dumps(candidates_list, ensure_ascii=False) if candidates_list else None
 
-    prompt = _build_single_prompt(t.enriched_title, t.description, t.tvdb_candidates, config.custom_prompt)
+    prompt = _build_single_prompt(t.enriched_title, t.description or "", candidates_json_str, config.custom_prompt)
     try:
         raw_result = await call_ai_provider(prompt, config)
         parsed_data = _clean_and_parse_json(raw_result)

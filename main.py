@@ -16,7 +16,7 @@ from fastapi.encoders import jsonable_encoder
 import uvicorn
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from dotenv import load_dotenv
-from sqlmodel import Session, select
+from sqlmodel import Session, select , delete
 from pydantic import BaseModel
 
 from core.database import engine, create_db_and_tables
@@ -28,6 +28,7 @@ from services.adapters.tvdb_scraper import process_pending_tvdb
 from services.adapters.tvdb_scraper import clean_for_tvdb, _tvdb_search
 from core.models.indexer import IndexerConfig
 from core.models.torrent import TorrentCache
+from core.models.torrent import TorrentTVDBCandidates
 from core.models.system import SystemConfig, AIConfig
 from core.logger import logger, LOG_FILE
 from core.ai_parser import process_pending_torrents, test_single_torrent_ai, test_ai_connection
@@ -447,29 +448,42 @@ async def import_cache_db(file: UploadFile = File(...)):
         return {"success": False, "error": str(e)}
 
 # ==========================================
-# RUTAS: BIBLIOTECA TVDB (Caché Maestra)
+# RUTAS: BIBLIOTECA TVDB (Caché Maestra y Búsqueda)
 # ==========================================
 
-"""
-Renderiza la vista de la Biblioteca Maestra de TheTVDB.
-"""
+from core.models.torrent import TVDBEpisodes
+from services.adapters.tvdb_scraper import fetch_tvdb_episodes, fetch_full_tvdb_series
+
 @app.get("/tvdb_cache")
 async def ui_tvdb_cache_view(request: Request):
     return templates.TemplateResponse(request=request, name="views/tvdb_cache.html", context={})
 
 """
-Obtiene todas las fichas maestras guardadas en la base de datos local.
+Renderiza la vista de Búsqueda Interactiva en TheTVDB.
+"""
+@app.get("/tvdb_search")
+async def ui_tvdb_search_view(request: Request):
+    return templates.TemplateResponse(request=request, name="views/tvdb_search.html", context={})
+
+"""
+Obtiene TODAS las fichas de TVDB guardadas, pero SOLO devuelve al frontend
+las que son 'Fichas Maestras' (is_full_record = True).
 """
 @app.get("/api/ui/tvdb_cache")
 async def get_tvdb_cache_list():
     with Session(engine) as session:
-        tvdb_items = session.exec(select(TVDBCache).order_by(TVDBCache.series_name_es)).all()
+        tvdb_items = session.exec(select(TVDBCache).where(TVDBCache.is_full_record == True).order_by(TVDBCache.series_name_es)).all()
         return {"tvdb_cache": jsonable_encoder(tvdb_items)}
 
 """
-Elimina una ficha maestra de la caché. (Útil si el usuario quiere forzar 
-que la IA vuelva a buscarla desde cero en el futuro).
+Devuelve todos los episodios asociados a una serie específica.
 """
+@app.get("/api/ui/tvdb_cache/{tvdb_id}/episodes")
+async def get_tvdb_episodes(tvdb_id: str):
+    with Session(engine) as session:
+        eps = session.exec(select(TVDBEpisodes).where(TVDBEpisodes.tvdb_id == tvdb_id).order_by(TVDBEpisodes.season_number, TVDBEpisodes.episode_number)).all()
+        return {"success": True, "episodes": jsonable_encoder(eps)}
+
 @app.delete("/api/ui/tvdb_cache/{tvdb_id}")
 async def delete_tvdb_cache_entry(tvdb_id: str):
     with Session(engine) as session:
@@ -480,35 +494,46 @@ async def delete_tvdb_cache_entry(tvdb_id: str):
             return {"success": True}
         return {"success": False}
 
-# ==========================================
-# API: SISTEMA Y SWITCHES AVANZADOS 
-# ==========================================
-
-class AdvancedProcessingForm(BaseModel):
-    is_enabled: bool
-    is_automated: bool
-
 """
-Recibe y guarda en base de datos los estados de encendido/apagado general 
-del motor IA y del proceso de fondo de escaneo automático.
+NUEVO: Devuelve una lista de TODAS las series conocidas (Maestras y Candidatos)
+para alimentar el buscador "Omnibox" del modal de edición de la interfaz.
 """
-@app.post("/api/ui/system/advanced")
-async def save_advanced_settings(data: AdvancedProcessingForm):
+@app.get("/api/ui/tvdb/local_candidates")
+async def get_local_candidates():
     with Session(engine) as session:
-        conf = session.exec(select(AIConfig)).first()
-        if not conf:
-            return {"success": False, "error": "Configuración de IA no inicializada."}
-            
-        conf.is_enabled = data.is_enabled
-        conf.is_automated = data.is_automated
+        items = session.exec(select(TVDBCache)).all()
+        return {"success": True, "results": jsonable_encoder(items)}
 
-        session.add(conf) 
-        session.commit()
+"""
+NUEVO: Realiza una búsqueda viva en TheTVDB (Búsqueda Interactiva de TVDB).
+"""
+@app.get("/api/ui/tvdb/remote_search")
+async def remote_tvdb_search(q: str):
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        if not config or not config.tvdb_api_key:
+            return {"success": False, "error": "TheTVDB no está configurado."}
         
-        msg_en = "ACTIVADO" if conf.is_enabled else "DESACTIVADO"
-        msg_auto = "ACTIVADA" if conf.is_automated else "DESACTIVADA"
-        logger.info(f"⚙️ Funciones Avanzadas -> Procesamiento: {msg_en} | Tarea Automática: {msg_auto}")
-        return {"success": True}
+        try:
+            results = await asyncio.to_thread(_tvdb_search, config.tvdb_api_key, q)
+            return {"success": True, "results": results}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+"""
+NUEVO: Convierte un candidato encontrado en el buscador remoto en una Ficha Maestra
+permanente, descargando sus temporadas y episodios.
+"""
+@app.post("/api/ui/tvdb/fetch_master/{tvdb_id}")
+async def force_fetch_master(tvdb_id: str):
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        try:
+            await fetch_full_tvdb_series(tvdb_id, session, config)
+            await fetch_tvdb_episodes(tvdb_id, session, config)
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 
 # ==========================================
@@ -589,7 +614,7 @@ class TestAIRequest(BaseModel):
 
 """
 Fuerza una nueva búsqueda de candidatos en TheTVDB para un torrent específico, 
-reiniciando su estado por si falló anteriormente.
+reiniciando su estado por si falló anteriormente. (Adaptado a Arquitectura Relacional)
 """
 @app.post("/api/ui/tvdb/force_specific")
 async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
@@ -604,16 +629,30 @@ async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
                 query = clean_for_tvdb(t.original_title)
                 try:
                     results = await asyncio.to_thread(_tvdb_search, config.tvdb_api_key, query)
+                    
+                    session.exec(delete(TorrentTVDBCandidates).where(TorrentTVDBCandidates.torrent_guid == guid))
+                    
                     if results:
-                        candidates = []
                         for r in results:
-                            raw_aliases = r.get("aliases", [])
-                            clean_aliases = [a.get("name") if isinstance(a, dict) else a for a in raw_aliases] if raw_aliases else []
-                            candidates.append({
-                                "tvdb_id": str(r.get("tvdb_id")), "name": r.get("name"),
-                                "aliases": clean_aliases, "image_url": r.get("image_url")
-                            })
-                        t.tvdb_candidates = json.dumps(candidates, ensure_ascii=False)
+                            tvdb_id_str = str(r.get("tvdb_id"))
+                            existing_show = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == tvdb_id_str)).first()
+                            
+                            if not existing_show:
+                                raw_aliases = r.get("aliases", [])
+                                clean_aliases = [a.get("name") if isinstance(a, dict) else a for a in raw_aliases] if raw_aliases else []
+                                new_show = TVDBCache(
+                                    tvdb_id=tvdb_id_str, series_name_es=r.get("name", "Desconocido"),
+                                    aliases=json.dumps(clean_aliases, ensure_ascii=False),
+                                    overview_basic=r.get("overview", "Sin sinopsis"),
+                                    poster_path=r.get("image_url"), first_aired=r.get("year", "Desconocido"),
+                                    status=r.get("status", "Desconocido"), is_full_record=False
+                                )
+                                session.add(new_show)
+                                session.commit()
+                            
+                            new_link = TorrentTVDBCandidates(torrent_guid=guid, tvdb_id=tvdb_id_str)
+                            session.add(new_link)
+                            
                         t.tvdb_status = "Candidatos"
                         t.ai_status = "Pendiente"
                     else:

@@ -5,6 +5,7 @@
 window.currentCacheData = [];
 window.currentSearchData = [];
 window.currentActiveTorrent = null;
+window.currentLocalCandidates = [];
 
 // ==========================================
 // 1. UTILIDADES Y HELPERS
@@ -866,7 +867,7 @@ function openInfoModalFromCache(guid) {
     if(t) populateAndOpenDualModal(t);
 }
 
-function openEditModal(guid) {
+async function openEditModal(guid) {
     const t = window.currentCacheData.find(x => x.guid === guid);
     if(!t) return;
     document.getElementById('edit_cache_guid').value = t.guid;
@@ -874,12 +875,106 @@ function openEditModal(guid) {
     document.getElementById('edit_enriched_title').innerText = t.enriched_title;
     document.getElementById('edit_cache_title').value = t.ai_translated_title || t.enriched_title;
     document.getElementById('edit_cache_description').value = t.description || '';
-    document.getElementById('edit_tvdb_id').value = t.tvdb_id || ''; 
+    
+    document.getElementById('edit_tvdb_search').value = '';
+    document.getElementById('edit_tvdb_id').value = '';
+    document.getElementById('omnibox_selected_badge').classList.add('hidden');
+    
     document.getElementById('edit_id_size').innerText = `${t.guid} | ${formatBytes(t.size_bytes)}`;
     
     const p = document.getElementById('edit_poster');
     p.style.backgroundImage = t.poster_url ? `url('/api/ui/poster?url=${encodeURIComponent(t.poster_url)}')` : 'none';
+    
+    try {
+        const res = await fetch('/api/ui/tvdb/local_candidates');
+        const data = await res.json();
+        if(data.success) {
+            window.currentLocalCandidates = data.results;
+            
+            if (t.tvdb_id) {
+                const existingShow = window.currentLocalCandidates.find(s => s.tvdb_id === t.tvdb_id);
+                if (existingShow) {
+                    selectOmniboxItem(existingShow.tvdb_id, existingShow.series_name_es);
+                } else {
+                    selectOmniboxItem(t.tvdb_id, `ID: ${t.tvdb_id}`);
+                }
+            }
+        }
+    } catch(e) { console.error("Error cargando candidatos del Omnibox"); }
+
     document.getElementById('editCacheModal').classList.remove('hidden');
+}
+
+function showOmnibox() { 
+    filterOmnibox();
+    document.getElementById('omnibox_dropdown').classList.remove('hidden'); 
+}
+
+function hideOmniboxDelayed() { 
+    setTimeout(() => { 
+        const d = document.getElementById('omnibox_dropdown');
+        if(d) d.classList.add('hidden'); 
+    }, 200); 
+}
+
+function filterOmnibox() {
+    const q = document.getElementById('edit_tvdb_search').value.toLowerCase().trim();
+    const dropdown = document.getElementById('omnibox_dropdown');
+    dropdown.innerHTML = '';
+    
+    const filtered = window.currentLocalCandidates.filter(s => {
+        const matchEs = s.series_name_es && s.series_name_es.toLowerCase().includes(q);
+        const matchAlias = s.aliases && s.aliases.toLowerCase().includes(q);
+        const matchId = s.tvdb_id && s.tvdb_id.includes(q);
+        return matchEs || matchAlias || matchId;
+    });
+    
+    if (filtered.length > 0) {
+        filtered.slice(0, 15).forEach(s => {
+            const div = document.createElement('div');
+            div.className = "flex items-center p-2 hover:bg-blue-900/50 cursor-pointer border-b border-gray-800 transition";
+            
+            const badge = s.is_full_record 
+                ? '<span class="ml-2 text-[10px] bg-green-900/50 text-green-400 px-1 rounded border border-green-700">Ficha Maestra</span>'
+                : '<span class="ml-2 text-[10px] bg-purple-900/50 text-purple-400 px-1 rounded border border-purple-700">Candidato</span>';
+                
+            div.innerHTML = `
+                <div class="flex-1 overflow-hidden">
+                    <div class="text-sm text-white font-bold truncate">${s.series_name_es} ${badge}</div>
+                    <div class="text-xs text-gray-500 font-mono">ID: ${s.tvdb_id} • Año: ${s.first_aired || '----'}</div>
+                </div>
+            `;
+            div.onclick = () => selectOmniboxItem(s.tvdb_id, s.series_name_es);
+            dropdown.appendChild(div);
+        });
+    }
+    
+    if (/^\d+$/.test(q)) {
+        const manualDiv = document.createElement('div');
+        manualDiv.className = "p-3 bg-yellow-900/20 text-yellow-500 text-xs font-bold hover:bg-yellow-900/40 cursor-pointer border-t border-yellow-700/50 transition";
+        manualDiv.innerHTML = `<i class="fa-solid fa-cloud-arrow-down mr-2"></i> Forzar ID Manual: ${q}`;
+        manualDiv.onclick = () => selectOmniboxItem(q, `ID Forzado: ${q}`);
+        dropdown.appendChild(manualDiv);
+    }
+    
+    if(dropdown.innerHTML === '') {
+        dropdown.innerHTML = '<div class="p-3 text-xs text-gray-500 italic text-center">No se encontraron coincidencias locales.</div>';
+    }
+}
+
+function selectOmniboxItem(tvdbId, displayName) {
+    document.getElementById('edit_tvdb_id').value = tvdbId;
+    document.getElementById('edit_tvdb_search').value = ''; 
+    
+    document.getElementById('omnibox_selected_text').innerText = displayName;
+    document.getElementById('omnibox_selected_badge').classList.remove('hidden');
+    document.getElementById('omnibox_dropdown').classList.add('hidden');
+}
+
+function clearOmniboxSelection() {
+    document.getElementById('edit_tvdb_id').value = '';
+    document.getElementById('omnibox_selected_badge').classList.add('hidden');
+    document.getElementById('edit_tvdb_search').focus();
 }
 
 async function saveCacheEdit() {
@@ -1450,9 +1545,10 @@ function filterTvdbGrid() {
 }
 
 /**
- * Abre el modal con la información detallada e inyecta los datos.
+ * Abre el modal con la información detallada, inyecta los datos 
+ * y solicita los episodios a la API local.
  */
-function openTvdbModal(tvdb_id) {
+async function openTvdbModal(tvdb_id) {
     const show = window.currentTvdbData.find(x => x.tvdb_id === tvdb_id);
     if (!show) return;
 
@@ -1463,6 +1559,13 @@ function openTvdbModal(tvdb_id) {
     document.getElementById('modal_tvdb_aired').innerText = show.first_aired || 'Desconocido';
     document.getElementById('modal_tvdb_id').innerText = show.tvdb_id;
     document.getElementById('modal_tvdb_overview').innerText = show.overview_es || show.overview_en || 'No hay sinopsis disponible.';
+
+    if (show.last_updated) {
+        const dateObj = new Date(show.last_updated + "Z"); 
+        document.getElementById('modal_tvdb_last_updated').innerText = `Sincronizado: ${dateObj.toLocaleDateString()} ${dateObj.toLocaleTimeString()}`;
+    } else {
+        document.getElementById('modal_tvdb_last_updated').innerText = `Sincronizado: Desconocido`;
+    }
 
     let seasonsText = "Desconocidas";
     if (show.seasons_data) {
@@ -1494,7 +1597,89 @@ function openTvdbModal(tvdb_id) {
     const btnDelete = document.getElementById('btn_delete_tvdb');
     btnDelete.onclick = () => deleteTvdbCacheEntry(show.tvdb_id);
 
+    const epContainer = document.getElementById('modal_tvdb_episodes_container');
+    epContainer.innerHTML = '<div class="text-xs text-gray-500 italic"><i class="fa-solid fa-spinner fa-spin mr-1"></i> Cargando capítulos de la base de datos...</div>';
+    
     document.getElementById('tvdbInfoModal').classList.remove('hidden');
+
+    try {
+        const res = await fetch(`/api/ui/tvdb_cache/${show.tvdb_id}/episodes`);
+        const data = await res.json();
+        if(data.success && data.episodes.length > 0) {
+            renderTvdbEpisodes(data.episodes, epContainer);
+        } else {
+            epContainer.innerHTML = '<div class="text-xs text-red-400 italic p-2 bg-red-900/20 border border-red-900/50 rounded">No se encontraron episodios locales. Utiliza el botón "Re-escanear TVDB" desde la ficha del torrent.</div>';
+        }
+    } catch(e) {
+        epContainer.innerHTML = '<div class="text-xs text-red-500 italic">Error de red cargando episodios.</div>';
+    }
+}
+
+/**
+ * Renderiza el acordeón interactivo agrupando la lista plana de episodios por temporada.
+ */
+function renderTvdbEpisodes(episodes, container) {
+    container.innerHTML = '';
+    
+    const seasons = {};
+    episodes.forEach(ep => {
+        if(!seasons[ep.season_number]) seasons[ep.season_number] = [];
+        seasons[ep.season_number].push(ep);
+    });
+
+    Object.keys(seasons).sort((a,b) => parseInt(a) - parseInt(b)).forEach(seasonNum => {
+        const seasonDiv = document.createElement('div');
+        seasonDiv.className = "border border-gray-800 rounded bg-gray-900/30 overflow-hidden";
+        
+        const header = document.createElement('div');
+        header.className = "px-3 py-2 bg-gray-800/50 hover:bg-gray-800 cursor-pointer flex justify-between items-center transition select-none";
+        header.onclick = () => toggleSeasonAccordion(seasonNum);
+        header.innerHTML = `
+            <span class="text-sm font-bold text-blue-400">Temporada ${seasonNum}</span>
+            <div class="flex items-center space-x-3">
+                <span class="text-[10px] bg-black border border-gray-700 px-1.5 py-0.5 rounded text-gray-400 font-mono">${seasons[seasonNum].length} eps</span>
+                <i id="icon_season_${seasonNum}" class="fa-solid fa-chevron-down text-gray-500 text-xs transition-transform duration-300"></i>
+            </div>
+        `;
+        
+        const body = document.createElement('div');
+        body.id = `body_season_${seasonNum}`;
+        body.className = "hidden flex-col divide-y divide-gray-800 border-t border-gray-800";
+        
+        seasons[seasonNum].forEach(ep => {
+            const epRow = document.createElement('div');
+            epRow.className = "px-3 py-2 flex justify-between items-center hover:bg-gray-800/30 transition";
+            epRow.innerHTML = `
+                <div class="flex items-center space-x-3 overflow-hidden">
+                    <span class="text-xs font-mono text-gray-600 bg-black px-1.5 py-0.5 rounded border border-gray-800 w-8 text-center">${ep.episode_number}</span>
+                    <span class="text-xs text-gray-300 truncate" title="${ep.name_es}">${ep.name_es}</span>
+                </div>
+                <span class="text-[10px] text-gray-600 font-mono ml-2 shrink-0">${ep.air_date || 'Sin fecha'}</span>
+            `;
+            body.appendChild(epRow);
+        });
+        
+        seasonDiv.appendChild(header);
+        seasonDiv.appendChild(body);
+        container.appendChild(seasonDiv);
+    });
+}
+
+/**
+ * Muestra u oculta la lista de episodios de una temporada específica y gira el icono.
+ */
+function toggleSeasonAccordion(seasonNum) {
+    const body = document.getElementById(`body_season_${seasonNum}`);
+    const icon = document.getElementById(`icon_season_${seasonNum}`);
+    if (body.classList.contains('hidden')) {
+        body.classList.remove('hidden');
+        body.classList.add('flex');
+        icon.classList.add('rotate-180');
+    } else {
+        body.classList.add('hidden');
+        body.classList.remove('flex');
+        icon.classList.remove('rotate-180');
+    }
 }
 
 function closeTvdbModal() {
@@ -1519,5 +1704,123 @@ async function deleteTvdbCacheEntry(tvdb_id) {
         }
     } catch(e) {
         showToast("Error de red.", false);
+    }
+}
+
+// ==========================================
+// 13. BÚSQUEDA INTERACTIVA THETVDB
+// ==========================================
+
+/**
+ * Lanza una búsqueda directa a los servidores de TheTVDB y pinta
+ * los resultados en una galería de "candidatos crudos".
+ */
+async function runTvdbSearch() {
+    const query = document.getElementById('tvdbInteractiveSearchInput').value.trim();
+    if(!query) return showToast("Escribe el nombre de una serie.", false);
+    
+    const btn = document.getElementById('btn_run_tvdb_search');
+    const grid = document.getElementById('tvdb-search-results-grid');
+    const progressContainer = document.getElementById('tvdb_search_progress_container');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Buscando...';
+    progressContainer.classList.remove('hidden');
+    grid.innerHTML = '<div class="col-span-full p-8 text-center text-gray-500"><i class="fa-solid fa-circle-notch fa-spin mr-2 text-blue-500"></i> Consultando a TheTVDB...</div>';
+    
+    try {
+        const res = await fetch(`/api/ui/tvdb/remote_search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        
+        progressContainer.classList.add('hidden');
+        
+        if(data.success) {
+            renderTvdbSearchResults(data.results || []);
+        } else {
+            grid.innerHTML = `<div class="col-span-full p-8 text-center text-red-500 font-bold"><i class="fa-solid fa-triangle-exclamation mr-2"></i> Error: ${data.error}</div>`;
+            showToast(data.error, false);
+        }
+    } catch(e) {
+        progressContainer.classList.add('hidden');
+        grid.innerHTML = '<div class="col-span-full p-8 text-center text-red-500 font-bold">Error de red al conectar con la API.</div>';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down mr-2"></i> Buscar en API';
+    }
+}
+
+/**
+ * Pinta las tarjetas de resultados de la búsqueda de TheTVDB.
+ */
+function renderTvdbSearchResults(results) {
+    const grid = document.getElementById('tvdb-search-results-grid');
+    if(!grid) return;
+    grid.innerHTML = '';
+    
+    if(results.length === 0) {
+        grid.innerHTML = '<div class="col-span-full p-8 text-center text-gray-500">No se encontraron resultados en TheTVDB.</div>';
+        return;
+    }
+    
+    results.forEach(r => {
+        const card = document.createElement('div');
+        card.className = "group flex flex-col relative bg-[#0a0f18] rounded-lg border border-blue-900/30 shadow-md hover:border-blue-500/50 transition-all duration-300";
+        
+        const posterUrl = r.image_url ? `/api/ui/poster?url=${encodeURIComponent(r.image_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
+        const year = r.year || '----';
+        const status = r.status || 'Desconocido';
+
+        card.innerHTML = `
+            <div class="relative aspect-[2/3] rounded-t-lg overflow-hidden bg-black">
+                <img src="${posterUrl}" alt="Poster" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 opacity-90 group-hover:opacity-100">
+                <div class="absolute top-2 right-2 bg-black/80 text-blue-400 text-xs font-bold px-2 py-1 rounded backdrop-blur-md border border-blue-800 shadow-lg">
+                    ID: ${r.tvdb_id}
+                </div>
+            </div>
+            <div class="p-3 flex flex-col justify-between flex-1">
+                <div>
+                    <div class="text-white text-sm font-bold line-clamp-2 leading-tight mb-1" title="${r.name}">${r.name}</div>
+                    <div class="text-xs text-gray-500 font-mono">${year} • ${status}</div>
+                </div>
+                <div class="mt-4 pt-3 border-t border-gray-800">
+                    <button onclick="fetchTvdbMaster('${r.tvdb_id}', this)" class="w-full bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-600/50 py-2 rounded text-xs font-bold transition flex justify-center items-center">
+                        <i class="fa-solid fa-download mr-2"></i> Añadir a Biblioteca
+                    </button>
+                </div>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+/**
+ * Solicita al backend que descargue la ficha completa (incluyendo capítulos) 
+ * y la guarde en la base de datos local (Convierte a is_full_record=True).
+ */
+async function fetchTvdbMaster(tvdb_id, btnElement) {
+    const originalHtml = btnElement.innerHTML;
+    btnElement.disabled = true;
+    btnElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Descargando...';
+    btnElement.classList.replace('text-blue-400', 'text-white');
+    
+    try {
+        const res = await fetch(`/api/ui/tvdb/fetch_master/${tvdb_id}`, { method: 'POST' });
+        const data = await res.json();
+        
+        if(data.success) {
+            btnElement.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Añadida';
+            btnElement.classList.replace('bg-blue-600/20', 'bg-green-600');
+            btnElement.classList.replace('border-blue-600/50', 'border-green-600');
+            btnElement.classList.replace('hover:bg-blue-600', 'hover:bg-green-700');
+            showToast("Ficha maestra y episodios guardados en la biblioteca.");
+        } else {
+            btnElement.innerHTML = originalHtml;
+            btnElement.disabled = false;
+            showToast("Error: " + data.error, false);
+        }
+    } catch(e) {
+        btnElement.innerHTML = originalHtml;
+        btnElement.disabled = false;
+        showToast("Error de red al descargar la ficha.", false);
     }
 }
