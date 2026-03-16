@@ -7,3 +7,4 @@ httpx
 beautifulsoup4
 lxml
 python-multipart
+tvdb_v4_official

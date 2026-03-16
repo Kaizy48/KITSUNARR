@@ -13,10 +13,6 @@ window.currentActiveTorrent = null;
 /**
  * Convierte un tamaño numérico en bytes a una cadena de texto legible 
  * en formatos escalados (KB, MB, GB, etc.).
- *
- * @param {number} bytes - El tamaño en bytes a convertir.
- * @param {number} [decimals=2] - Número de decimales a mostrar.
- * @returns {string} Cadena de texto formateada (ej. '1.50 GB').
  */
 function formatBytes(bytes, decimals = 2) {
     if (!+bytes) return '0 Bytes';
@@ -29,9 +25,6 @@ function formatBytes(bytes, decimals = 2) {
 
 /**
  * Muestra una notificación emergente (Toast) temporal en la esquina de la pantalla.
- *
- * @param {string} message - El texto de la notificación a mostrar.
- * @param {boolean} [isSuccess=true] - Determina si la notificación es de éxito (verde) o error (roja).
  */
 function showToast(message, isSuccess = true) {
     const container = document.getElementById('toast-container');
@@ -92,8 +85,6 @@ function closeCacheModal() {
 /**
  * Alterna la vista del modal de información entre los datos crudos del tracker 
  * y los metadatos enriquecidos por TheTVDB/IA. Cambia estilos, insignias y el póster.
- *
- * @param {string} tabName - El nombre de la pestaña a activar ('tracker' o 'tvdb').
  */
 function switchInfoTab(tabName) {
     const viewTracker = document.getElementById('info_view_tracker');
@@ -119,11 +110,13 @@ function switchInfoTab(tabName) {
         badge.innerText = "THETVDB"; badge.className = "absolute top-8 left-8 bg-black/80 text-blue-400 text-xs font-bold px-2 py-1 rounded backdrop-blur-md border border-blue-700 z-10 uppercase tracking-widest shadow-lg";
         
         let tvdbImg = null;
-        if(t.tvdb_candidates) {
+        if (t.tvdb_status === 'Listo' && t.tvdb_poster_path) {
+            tvdbImg = t.tvdb_poster_path;
+        } else if(t.tvdb_candidates) {
             try {
                 const cands = JSON.parse(t.tvdb_candidates);
                 const match = cands.find(c => c.tvdb_id == t.tvdb_id) || cands[0];
-                if(match) tvdbImg = match.image_url;
+                if(match && match.image_url) tvdbImg = match.image_url;
             } catch(e) {}
         }
         poster.style.backgroundImage = tvdbImg ? `url('/api/ui/poster?url=${encodeURIComponent(tvdbImg)}')` : 'none';
@@ -133,8 +126,6 @@ function switchInfoTab(tabName) {
 /**
  * Recibe un objeto torrent completo, inyecta todos sus datos técnicos, estados de IA 
  * y de TheTVDB en el DOM del modal de Ficha Dual, y finalmente lo muestra en pantalla.
- *
- * @param {Object} torrentObj - Objeto con los datos del torrent seleccionado.
  */
 function populateAndOpenDualModal(torrentObj) {
     window.currentActiveTorrent = torrentObj;
@@ -194,8 +185,8 @@ function populateAndOpenDualModal(torrentObj) {
         posterContainer.style.backgroundImage = `url('/api/ui/poster?url=${encodeURIComponent(torrentObj.poster_url)}')`;
         placeholder.classList.add('hidden');
     } else {
-        posterContainer.style.backgroundImage = 'none';
-        placeholder.classList.remove('hidden');
+        posterContainer.style.backgroundImage = `url('/static/img/Kitsunarr-logo-512x512.png')`;
+        placeholder.classList.add('hidden');
     }
 
     switchInfoTab('tracker');
@@ -230,8 +221,6 @@ function openRestartModal() {
 /**
  * Llama al backend para regenerar una nueva Clave API de Torznab.
  * Opcionalmente, envía una señal de reinicio forzado a Uvicorn si se requiere.
- *
- * @param {boolean} restart - Si es true, reiniciará el backend después de generar la clave.
  */
 async function executeRegenerate(restart) {
     try {
@@ -327,8 +316,6 @@ async function testTVDB() {
 /**
  * Maneja el clic en el interruptor principal de activación de la IA.
  * Si se intenta activar, intercepta la acción para mostrar advertencias sobre TVDB.
- *
- * @param {Event} event - El evento DOM del checkbox pulsado.
  */
 async function handleAIToggleClick(event) {
     const checkbox = event.target;
@@ -563,8 +550,6 @@ async function populateAITestDropdown() {
 
 /**
  * Renderiza el DOM del menú desplegable del Laboratorio IA con los datos proporcionados.
- *
- * @param {Array} torrents - Lista de objetos torrent a mostrar en la lista.
  */
 function renderAITestDropdown(torrents) {
     const list = document.getElementById('test_ai_dropdown_list');
@@ -607,8 +592,6 @@ function hideAITestDropdownDelayed() { setTimeout(() => { const l = document.get
 /**
  * Selecciona un torrent específico de la lista y rellena el panel del 
  * Laboratorio de IA con sus metadatos e imágenes preparados para el test.
- *
- * @param {Object} t - El objeto torrent seleccionado.
  */
 function selectAITestTorrent(t) {
     document.getElementById('test_ai_search_input').value = t.enriched_title;
@@ -748,7 +731,7 @@ async function submitBatchProcess() {
         const data = await res.json();
         if(data.success) {
             showToast("Procesamiento enviado. Revisa la consola.");
-            if(window.location.pathname.includes('cache')) loadCacheTable();
+            if(window.location.pathname.includes('cache')) loadCacheGrid();
         }
     } catch(e) { showToast("Error de red.", false); }
 }
@@ -760,105 +743,102 @@ function closeBatchModal() { document.getElementById('aiBatchModal').classList.a
 
 
 // ==========================================
-// 6. GESTIÓN DE LA CACHÉ (TABLA)
+// 6. GESTIÓN DE LA CACHÉ (GALERÍA VISUAL)
 // ==========================================
 
-/**
- * Consulta la base de datos local y carga la tabla principal con todos los 
- * torrents cacheados por el sistema, inyectando un estado de carga mientras tanto.
- */
-async function loadCacheTable() {
-    const tbody = document.getElementById('cache-tbody');
-    if(!tbody) return;
+async function loadCacheGrid() {
+    const grid = document.getElementById('cache-grid');
+    if(!grid) return;
     
-    tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-500"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando base de datos...</td></tr>';
+    grid.innerHTML = '<div class="col-span-full text-center p-8 text-gray-500"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando base de datos...</div>';
     
     try {
         const res = await fetch('/api/ui/cache');
         const data = await res.json();
         window.currentCacheData = data.torrents;
-        renderCacheTable(window.currentCacheData);
+        renderCacheGrid(window.currentCacheData);
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-red-500">Error al cargar la caché.</td></tr>';
+        grid.innerHTML = '<div class="col-span-full text-center p-8 text-red-500">Error al cargar la caché.</div>';
     }
 }
 
-/**
- * Renderiza dinámicamente el HTML de las filas de la tabla de la base de datos 
- * basándose en la lista de torrents proporcionada.
- *
- * @param {Array} data - Lista de objetos torrent a renderizar.
- */
-function renderCacheTable(data) {
-    const tbody = document.getElementById('cache-tbody');
-    if(!tbody) return;
-    tbody.innerHTML = '';
+function renderCacheGrid(data) {
+    const grid = document.getElementById('cache-grid');
+    if(!grid) return;
+    grid.innerHTML = '';
     
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-500">La caché está vacía.</td></tr>';
+        grid.innerHTML = '<div class="col-span-full text-center p-8 text-gray-500 flex flex-col items-center"><i class="fa-solid fa-box-open text-4xl mb-3"></i><p>La caché está vacía.</p></div>';
         return;
     }
 
     data.forEach(t => {
-        const tr = document.createElement('tr');
-        tr.className = "border-b border-gray-800 hover:bg-[#1a0f2e] transition";
+        const card = document.createElement('div');
+        card.className = "group flex flex-col relative bg-[#11051c] rounded-lg border border-gray-800 shadow-md hover:border-yellow-500/50 transition-all duration-300";
         
-        let iaHtml = t.ai_status === 'Listo' ? '<span class="text-green-500" title="IA Lista"><i class="fa-solid fa-robot"></i></span>' : '<span class="text-gray-600" title="IA Pendiente"><i class="fa-solid fa-robot"></i></span>';
-        let tvdbHtml = t.tvdb_status === 'Listo' ? '<span class="text-blue-500" title="TVDB Validado"><i class="fa-solid fa-tv"></i></span>' : '<span class="text-gray-600" title="TVDB Pendiente"><i class="fa-solid fa-tv"></i></span>';
+        let displayName = "";
+        if (t.tvdb_status === 'Listo' && t.tvdb_series_name_es) {
+            displayName = t.tvdb_series_name_es;
+        } else {
+            displayName = t.enriched_title.replace(/\[.*?\]/g, '').trim();
+        }
 
-        tr.innerHTML = `
-            <td class="p-3 text-gray-500 font-mono text-center">${t.guid}</td>
-            <td class="p-3">
-                <div class="text-white font-bold mb-1 whitespace-normal break-words">${t.enriched_title}</div>
-                <div class="text-gray-500 text-xs line-clamp-3 italic">${t.description || 'Sin descripción'}</div>
-            </td>
-            <td class="p-3">
-                <div class="text-yellow-400 font-mono text-xs break-words">${t.ai_translated_title || '-'}</div>
-            </td>
-            <td class="p-3 text-center space-x-3 text-lg">
-                ${iaHtml} ${tvdbHtml}
-            </td>
-            <td class="p-3 text-right space-x-2">
-                <button onclick="openInfoModalFromCache('${t.guid}')" class="text-blue-400 hover:text-white transition" title="Ver Ficha Dual"><i class="fa-solid fa-eye"></i></button>
-                <button onclick="openEditModal('${t.guid}')" class="text-gray-400 hover:text-white transition" title="Editar Manualmente"><i class="fa-solid fa-pen"></i></button>
-                <button onclick="deleteCacheEntry('${t.guid}')" class="text-red-500 hover:text-white transition" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
-            </td>
+        let fansubTag = t.fansub_name ? `[${t.fansub_name}]` : `[UnionFansub]`;
+        
+        let iaIcon = t.ai_status === 'Listo' ? '<i class="fa-solid fa-robot text-green-500" title="IA Lista"></i>' : (t.ai_status === 'Manual' ? '<i class="fa-solid fa-user-pen text-purple-400" title="IA Editada Manual"></i>' : '<i class="fa-solid fa-robot text-gray-600" title="IA Pendiente"></i>');
+        let tvdbIcon = t.tvdb_status === 'Listo' ? '<i class="fa-solid fa-tv text-blue-500" title="TVDB Validado"></i>' : (t.tvdb_status === 'Candidatos' ? '<i class="fa-solid fa-tv text-purple-400" title="TVDB Candidatos Listos"></i>' : '<i class="fa-solid fa-tv text-gray-600" title="TVDB Pendiente"></i>');
+
+        const posterUrl = t.poster_url ? `/api/ui/poster?url=${encodeURIComponent(t.poster_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
+
+        card.innerHTML = `
+            <div class="relative aspect-[2/3] rounded-t-lg overflow-hidden cursor-pointer bg-black" onclick="openInfoModalFromCache('${t.guid}')">
+                <img src="${posterUrl}" alt="Poster" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-90 group-hover:opacity-100">
+                <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <i class="fa-solid fa-eye text-3xl text-white"></i>
+                </div>
+                <div class="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button onclick="event.stopPropagation(); openEditModal('${t.guid}')" class="bg-black/80 hover:bg-yellow-500 text-white p-2 rounded border border-gray-600 transition" title="Editar Manualmente">
+                        <i class="fa-solid fa-pen text-xs"></i>
+                    </button>
+                    <button onclick="event.stopPropagation(); deleteCacheEntry('${t.guid}')" class="bg-black/80 hover:bg-red-500 text-white p-2 rounded border border-gray-600 transition" title="Eliminar">
+                        <i class="fa-solid fa-trash text-xs"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="p-3 flex flex-col justify-between flex-1">
+                <div>
+                    <div class="text-xs font-bold text-yellow-500 mb-1 truncate">${fansubTag}</div>
+                    <div class="text-white text-sm font-bold line-clamp-2 leading-tight" title="${displayName}">${displayName}</div>
+                </div>
+                <div class="mt-3 flex justify-between items-center border-t border-gray-800 pt-2">
+                    <div class="text-xs text-gray-500 font-mono">${t.guid}</div>
+                    <div class="flex space-x-2 text-base">
+                        ${iaIcon} ${tvdbIcon}
+                    </div>
+                </div>
+            </div>
         `;
-        tbody.appendChild(tr);
+        grid.appendChild(card);
     });
 }
 
-/**
- * Filtra la vista de la tabla de la caché local basándose en el campo 
- * de texto de búsqueda, afectando títulos, GUIDs y traducciones de la IA.
- */
-function filterCacheTable() {
+function filterCacheGrid() {
     const q = document.getElementById('cacheSearch').value.toLowerCase();
     const filtered = window.currentCacheData.filter(t => 
         t.enriched_title.toLowerCase().includes(q) || 
         t.guid.includes(q) || 
-        (t.ai_translated_title && t.ai_translated_title.toLowerCase().includes(q))
+        (t.ai_translated_title && t.ai_translated_title.toLowerCase().includes(q)) ||
+        (t.fansub_name && t.fansub_name.toLowerCase().includes(q)) ||
+        (t.tvdb_series_name_es && t.tvdb_series_name_es.toLowerCase().includes(q))
     );
-    renderCacheTable(filtered);
+    renderCacheGrid(filtered);
 }
 
-/**
- * Busca un torrent por su GUID en la variable global de caché y abre 
- * el modal de Ficha Dual con su información.
- *
- * @param {string} guid - El identificador único del torrent.
- */
 function openInfoModalFromCache(guid) {
     const t = window.currentCacheData.find(x => x.guid === guid);
     if(t) populateAndOpenDualModal(t);
 }
 
-/**
- * Abre el modal de edición manual para permitir al usuario forzar o alterar 
- * los campos traducidos por la IA y la vinculación a TheTVDB.
- *
- * @param {string} guid - El identificador único del torrent a editar.
- */
 function openEditModal(guid) {
     const t = window.currentCacheData.find(x => x.guid === guid);
     if(!t) return;
@@ -875,10 +855,6 @@ function openEditModal(guid) {
     document.getElementById('editCacheModal').classList.remove('hidden');
 }
 
-/**
- * Envía los datos modificados manualmente en el modal de edición hacia la API 
- * para actualizar el registro en la base de datos y recarga la tabla.
- */
 async function saveCacheEdit() {
     const guid = document.getElementById('edit_cache_guid').value;
     const title = document.getElementById('edit_cache_title').value.trim();
@@ -892,16 +868,10 @@ async function saveCacheEdit() {
             body: JSON.stringify({ ai_translated_title: title, description: desc, tvdb_id: tvdbId })
         });
         const data = await res.json();
-        if(data.success) { closeCacheModal(); showToast("Caché actualizada."); loadCacheTable(); }
+        if(data.success) { closeCacheModal(); showToast("Caché actualizada."); loadCacheGrid(); }
     } catch(e) { showToast("Error de red.", false); }
 }
 
-/**
- * Solicita a la API la eliminación de un torrent específico de la base de datos 
- * local tras la confirmación del usuario.
- *
- * @param {string} guid - El identificador único del torrent a eliminar.
- */
 async function deleteCacheEntry(guid) {
     if(!confirm("¿Estás seguro de que quieres eliminar este torrent de la caché local?")) return;
     try {
@@ -909,25 +879,15 @@ async function deleteCacheEntry(guid) {
         const data = await res.json();
         if(data.success) {
             showToast("Torrent eliminado.");
-            loadCacheTable();
+            loadCacheGrid();
         }
     } catch(e) { showToast("Error de red.", false); }
 }
 
-/**
- * Redirige el navegador al endpoint de exportación para forzar la descarga 
- * física del archivo de la base de datos SQLite.
- */
 async function exportCache() {
     window.location.href = '/api/ui/cache/export';
 }
 
-/**
- * Maneja el evento de selección de archivo en el input de importación, 
- * enviando el archivo de base de datos `.db` al servidor.
- *
- * @param {Event} event - El evento DOM de tipo 'change' en el input de archivo.
- */
 async function handleImportCache(event) {
     const file = event.target.files[0];
     if(!file) return;
@@ -944,7 +904,7 @@ async function handleImportCache(event) {
         const data = await res.json();
         if(data.success) {
             showToast(`Importación exitosa. ${data.count} torrents añadidos.`);
-            loadCacheTable();
+            loadCacheGrid();
         } else {
             showToast("Error: " + data.error, false);
         }
@@ -960,14 +920,14 @@ async function handleImportCache(event) {
 
 /**
  * Ejecuta una consulta directa al indexador configurado forzando el raspado 
- * de la página web remota y renderiza los resultados.
+ * de la página web remota y renderiza los resultados en la galería.
  */
 async function runInteractiveSearch() {
     const query = document.getElementById('interactiveSearchInput').value.trim();
     if(!query) return showToast("Escribe un término de búsqueda.", false);
     
     const btn = document.getElementById('btn_run_search');
-    const tbody = document.getElementById('search-results-tbody');
+    const grid = document.getElementById('search-results-grid');
     const progressContainer = document.getElementById('search_progress_container');
     const progressBar = document.getElementById('search_progress_bar');
     const progressText = document.getElementById('search_percentage');
@@ -976,7 +936,7 @@ async function runInteractiveSearch() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Buscando...';
     progressContainer.classList.remove('hidden');
-    tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-500"><i class="fa-solid fa-circle-notch fa-spin mr-2 text-yellow-500"></i> Raspando páginas del foro...</td></tr>';
+    grid.innerHTML = '<div class="col-span-full p-8 text-center text-gray-500"><i class="fa-solid fa-circle-notch fa-spin mr-2 text-yellow-500"></i> Raspando páginas del foro...</div>';
     
     let progress = 10;
     progressBar.style.width = `${progress}%`;
@@ -1007,13 +967,13 @@ async function runInteractiveSearch() {
             window.currentSearchData = data.results;
             renderSearchResults(window.currentSearchData);
         } else {
-            tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-red-500 font-bold"><i class="fa-solid fa-triangle-exclamation mr-2"></i> Error: ${data.error}</td></tr>`;
+            grid.innerHTML = `<div class="col-span-full p-8 text-center text-red-500 font-bold"><i class="fa-solid fa-triangle-exclamation mr-2"></i> Error: ${data.error}</div>`;
             showToast(data.error, false);
         }
     } catch(e) {
         clearInterval(fakeProgressInterval);
         progressContainer.classList.add('hidden');
-        tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-red-500 font-bold">Error de red al conectar con el servidor interno.</td></tr>';
+        grid.innerHTML = '<div class="col-span-full p-8 text-center text-red-500 font-bold">Error de red al conectar con el servidor interno.</div>';
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fa-solid fa-search mr-2"></i> Buscar en Foro';
@@ -1021,51 +981,65 @@ async function runInteractiveSearch() {
 }
 
 /**
- * Pinta en el HTML la tabla de resultados devueltos por la búsqueda interactiva.
- *
- * @param {Array} results - Lista de objetos torrent devueltos por el scraper web.
+ * Pinta en el HTML la galería de resultados devueltos por la búsqueda interactiva.
  */
 function renderSearchResults(results) {
-    const tbody = document.getElementById('search-results-tbody');
-    if(!tbody) return;
-    tbody.innerHTML = '';
+    const grid = document.getElementById('search-results-grid');
+    if(!grid) return;
+    grid.innerHTML = '';
     
     if(results.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-500">No se encontraron resultados en el tracker.</td></tr>';
+        grid.innerHTML = '<div class="col-span-full p-8 text-center text-gray-500">No se encontraron resultados en el tracker.</div>';
         return;
     }
     
     results.forEach(t => {
-        const tr = document.createElement('tr');
-        tr.className = "border-b border-gray-800 hover:bg-[#1a0f2e] transition";
+        const card = document.createElement('div');
+        card.className = "group flex flex-col relative bg-[#11051c] rounded-lg border border-gray-800 shadow-md hover:border-yellow-500/50 transition-all duration-300";
         
-        let iaBadge = t.ai_status === 'Listo' ? '<span class="text-green-500" title="IA Lista"><i class="fa-solid fa-robot"></i></span>' : '<span class="text-gray-600" title="IA Pendiente"><i class="fa-solid fa-robot"></i></span>';
-        let tvdbBadge = t.tvdb_status === 'Listo' ? '<span class="text-blue-500" title="TVDB Validado"><i class="fa-solid fa-tv"></i></span>' : '<span class="text-gray-600" title="TVDB Pendiente"><i class="fa-solid fa-tv"></i></span>';
+        // Lógica dual de nombres
+        let displayName = "";
+        if (t.tvdb_status === 'Listo' && t.tvdb_series_name_es) {
+            displayName = t.tvdb_series_name_es;
+        } else {
+            displayName = t.enriched_title.replace(/\[.*?\]/g, '').trim();
+        }
 
-        tr.innerHTML = `
-            <td class="p-3 text-gray-500 font-mono text-center">${t.guid}</td>
-            <td class="p-3">
-                <div class="text-white font-bold text-sm mb-1">${t.enriched_title}</div>
-                <div class="text-gray-500 text-xs">${formatBytes(t.size_bytes)} | ${t.pub_date || 'Desconocido'}</div>
-            </td>
-            <td class="p-3 text-center text-lg space-x-2">
-                ${iaBadge} ${tvdbBadge}
-            </td>
-            <td class="p-3 text-right">
-                <button onclick="openInfoModalFromSearch('${t.guid}')" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-1.5 rounded border border-gray-600 transition text-xs font-bold">
-                    <i class="fa-solid fa-eye mr-1 text-blue-400"></i> Ver Ficha
-                </button>
-            </td>
+        let fansubTag = t.fansub_name ? `[${t.fansub_name}]` : `[UnionFansub]`;
+        
+        // Iconos de estado
+        let iaIcon = t.ai_status === 'Listo' ? '<i class="fa-solid fa-robot text-green-500" title="IA Lista"></i>' : (t.ai_status === 'Manual' ? '<i class="fa-solid fa-user-pen text-purple-400" title="IA Editada Manual"></i>' : '<i class="fa-solid fa-robot text-gray-600" title="IA Pendiente"></i>');
+        let tvdbIcon = t.tvdb_status === 'Listo' ? '<i class="fa-solid fa-tv text-blue-500" title="TVDB Validado"></i>' : (t.tvdb_status === 'Candidatos' ? '<i class="fa-solid fa-tv text-purple-400" title="TVDB Candidatos Listos"></i>' : '<i class="fa-solid fa-tv text-gray-600" title="TVDB Pendiente"></i>');
+
+        const posterUrl = t.poster_url ? `/api/ui/poster?url=${encodeURIComponent(t.poster_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
+
+        card.innerHTML = `
+            <div class="relative aspect-[2/3] rounded-t-lg overflow-hidden cursor-pointer bg-black" onclick="openInfoModalFromSearch('${t.guid}')">
+                <img src="${posterUrl}" alt="Poster" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-90 group-hover:opacity-100">
+                <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <i class="fa-solid fa-eye text-3xl text-white"></i>
+                </div>
+            </div>
+            <div class="p-3 flex flex-col justify-between flex-1">
+                <div>
+                    <div class="text-xs font-bold text-yellow-500 mb-1 truncate">${fansubTag}</div>
+                    <div class="text-white text-sm font-bold line-clamp-2 leading-tight" title="${displayName}">${displayName}</div>
+                </div>
+                <div class="mt-3 flex justify-between items-center border-t border-gray-800 pt-2">
+                    <div class="text-xs text-gray-500 font-mono">${t.guid}</div>
+                    <div class="flex space-x-2 text-base">
+                        ${iaIcon} ${tvdbIcon}
+                    </div>
+                </div>
+            </div>
         `;
-        tbody.appendChild(tr);
+        grid.appendChild(card);
     });
 }
 
 /**
  * Busca un torrent por su GUID en la variable global de resultados de búsqueda 
  * y abre el modal de Ficha Dual con su información.
- *
- * @param {string} guid - El identificador único del torrent.
  */
 function openInfoModalFromSearch(guid) {
     const t = window.currentSearchData.find(x => x.guid === guid);
@@ -1079,8 +1053,6 @@ function openInfoModalFromSearch(guid) {
 /**
  * Envía la orden a la API para procesar un único torrent saltándose la cola.
  * Utilizado desde el modal de la ficha dual.
- *
- * @param {string} guid - El identificador del torrent a procesar por la IA.
  */
 async function forceSingleAIProcess(guid) {
     showToast("Enviando petición a la IA...");
@@ -1124,8 +1096,6 @@ function openConfigModal() {
 /**
  * Gestiona el cambio de pestañas entre "Cookie" y "Usuario/Contraseña" dentro 
  * del modal de configuración de un indexador.
- *
- * @param {string} tabId - Identificador de la pestaña solicitada ('cookie' o 'login').
  */
 function switchTab(tabId) {
     document.getElementById('auth_type_input').value = tabId;
@@ -1197,9 +1167,6 @@ async function saveIndexer() {
 /**
  * Pide a la API que compruebe la conexión del indexador enviando su huella digital. 
  * Modifica el icono de estado de la tabla según el resultado.
- *
- * @param {string} identifier - El identificador interno del tracker (ej. 'unionfansub').
- * @param {string} name - Nombre legible del tracker para mostrar en notificaciones.
  */
 async function testIndexer(identifier, name) {
     const iconTd = document.getElementById(`status-icon-${identifier}`);
@@ -1226,8 +1193,6 @@ async function testIndexer(identifier, name) {
 
 /**
  * Pide a la API borrar la configuración de un indexador y recarga la página.
- *
- * @param {string} identifier - Identificador interno del indexador a borrar.
  */
 async function deleteIndexer(identifier) {
     if(!confirm("¿Seguro que quieres eliminar este indexador de Kitsunarr?")) return;
@@ -1357,4 +1322,154 @@ async function resetPrompt() {
     if(!confirm("¿Borrar tu prompt y volver a usar el de fábrica?")) return;
     document.getElementById('custom_prompt_textarea').value = "";
     await saveCustomPrompt();
+}
+
+// ==========================================
+// 12. BIBLIOTECA TVDB (CACHÉ MAESTRA)
+// ==========================================
+
+window.currentTvdbData = [];
+
+/**
+ * Carga la lista de series conocidas desde la API y las renderiza en formato galería.
+ */
+async function loadTvdbCache() {
+    const grid = document.getElementById('tvdb-grid');
+    if (!grid) return;
+
+    grid.innerHTML = '<div class="col-span-full text-center p-8 text-gray-500"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando biblioteca...</div>';
+
+    try {
+        const res = await fetch('/api/ui/tvdb_cache');
+        const data = await res.json();
+        window.currentTvdbData = data.tvdb_cache;
+        renderTvdbGrid(window.currentTvdbData);
+    } catch (e) {
+        grid.innerHTML = '<div class="col-span-full text-center p-8 text-red-500">Error al cargar la biblioteca TVDB.</div>';
+    }
+}
+
+/**
+ * Pinta los pósters en el HTML.
+ */
+function renderTvdbGrid(data) {
+    const grid = document.getElementById('tvdb-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    if (data.length === 0) {
+        grid.innerHTML = '<div class="col-span-full text-center p-8 text-gray-500 flex flex-col items-center"><i class="fa-solid fa-folder-open text-4xl mb-3"></i><p>La biblioteca está vacía.</p><p class="text-xs mt-2">Procesa torrents con la IA para que Kitsunarr empiece a aprender.</p></div>';
+        return;
+    }
+
+    data.forEach(show => {
+        const card = document.createElement('div');
+        card.className = "group cursor-pointer flex flex-col relative transition-transform transform hover:scale-105 hover:z-10";
+        card.onclick = () => openTvdbModal(show.tvdb_id);
+
+        const posterUrl = show.poster_path ? `/api/ui/poster?url=${encodeURIComponent(show.poster_path)}` : '/static/img/Kitsunarr-logo-512x512.png';
+        const statusColor = show.status === 'Ended' ? 'bg-red-500' : (show.status === 'Continuing' ? 'bg-green-500' : 'bg-gray-500');
+
+        card.innerHTML = `
+            <div class="relative aspect-[2/3] rounded-lg overflow-hidden shadow-lg border border-gray-800">
+                <img src="${posterUrl}" alt="Poster" class="w-full h-full object-cover">
+                <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <i class="fa-solid fa-magnifying-glass-plus text-3xl text-white"></i>
+                </div>
+                <div class="absolute top-2 right-2 ${statusColor} w-3 h-3 rounded-full border border-black shadow-sm" title="${show.status || 'Desconocido'}"></div>
+            </div>
+            <div class="mt-2 text-center">
+                <h3 class="text-white text-sm font-bold truncate px-1">${show.series_name_es || show.series_name_en}</h3>
+                <p class="text-gray-500 text-xs">${show.first_aired ? show.first_aired.substring(0,4) : '----'}</p>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+/**
+ * Filtra la galería buscando en el título español, inglés y en la lista de alias.
+ */
+function filterTvdbGrid() {
+    const q = document.getElementById('tvdbSearch').value.toLowerCase();
+    const filtered = window.currentTvdbData.filter(show => {
+        const matchEs = show.series_name_es && show.series_name_es.toLowerCase().includes(q);
+        const matchEn = show.series_name_en && show.series_name_en.toLowerCase().includes(q);
+        const matchAlias = show.aliases && show.aliases.toLowerCase().includes(q); // Como los alias son un string JSON, basta con buscar en el texto crudo
+        return matchEs || matchEn || matchAlias;
+    });
+    renderTvdbGrid(filtered);
+}
+
+/**
+ * Abre el modal con la información detallada e inyecta los datos.
+ */
+function openTvdbModal(tvdb_id) {
+    const show = window.currentTvdbData.find(x => x.tvdb_id === tvdb_id);
+    if (!show) return;
+
+    document.getElementById('modal_tvdb_poster').src = show.poster_path ? `/api/ui/poster?url=${encodeURIComponent(show.poster_path)}` : '';
+    document.getElementById('modal_tvdb_title_es').innerText = show.series_name_es || 'Sin título ES';
+    document.getElementById('modal_tvdb_title_en').innerText = show.series_name_en || 'Sin título EN';
+    document.getElementById('modal_tvdb_status').innerText = show.status || 'Desconocido';
+    document.getElementById('modal_tvdb_aired').innerText = show.first_aired || 'Desconocido';
+    document.getElementById('modal_tvdb_id').innerText = show.tvdb_id;
+    document.getElementById('modal_tvdb_overview').innerText = show.overview_es || show.overview_en || 'No hay sinopsis disponible.';
+
+    let seasonsText = "Desconocidas";
+    if (show.seasons_data) {
+        try {
+            const parsedSeasons = JSON.parse(show.seasons_data);
+            const seasonKeys = Object.keys(parsedSeasons);
+            if (seasonKeys.length > 0) {
+                seasonsText = `T${seasonKeys.join(', T')}`;
+            }
+        } catch(e) {}
+    }
+    document.getElementById('modal_tvdb_seasons').innerText = seasonsText;
+
+    const aliasesContainer = document.getElementById('modal_tvdb_aliases');
+    aliasesContainer.innerHTML = '';
+    if (show.aliases) {
+        try {
+            const aliasArr = JSON.parse(show.aliases);
+            if (aliasArr.length === 0) aliasesContainer.innerHTML = '<span class="text-xs text-gray-600 italic">No hay alias registrados.</span>';
+            aliasArr.slice(0, 10).forEach(alias => {
+                const span = document.createElement('span');
+                span.className = "bg-gray-800 border border-gray-700 text-gray-300 text-xs px-2 py-1 rounded";
+                span.innerText = alias;
+                aliasesContainer.appendChild(span);
+            });
+        } catch(e) {}
+    }
+
+    const btnDelete = document.getElementById('btn_delete_tvdb');
+    btnDelete.onclick = () => deleteTvdbCacheEntry(show.tvdb_id);
+
+    document.getElementById('tvdbInfoModal').classList.remove('hidden');
+}
+
+function closeTvdbModal() {
+    document.getElementById('tvdbInfoModal').classList.add('hidden');
+}
+
+/**
+ * Elimina una ficha de la base de conocimientos.
+ */
+async function deleteTvdbCacheEntry(tvdb_id) {
+    if(!confirm("¿Borrar esta serie de la base de conocimientos? (La IA tendrá que volver a buscarla la próxima vez).")) return;
+    
+    try {
+        const res = await fetch(`/api/ui/tvdb_cache/${tvdb_id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if(data.success) {
+            showToast("Serie eliminada de la biblioteca.");
+            closeTvdbModal();
+            loadTvdbCache();
+        } else {
+            showToast("Error al eliminar.", false);
+        }
+    } catch(e) {
+        showToast("Error de red.", false);
+    }
 }

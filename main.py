@@ -20,6 +20,7 @@ from sqlmodel import Session, select
 from pydantic import BaseModel
 
 from core.database import engine, create_db_and_tables
+from core.models.torrent import TVDBCache
 from core.tracker_login import attempt_unionfansub_login
 from core.tracker_login import auto_renew_cookie
 from services.adapters.union_scraper import search_unionfansub_html, test_unionfansub_connection
@@ -73,9 +74,6 @@ async def tvdb_background_worker():
 Maneja el ciclo de vida de la aplicación FastAPI.
 Inicializa la base de datos, genera las configuraciones por defecto 
 si es la primera ejecución y arranca los demonios de fondo.
-
-Parámetros:
-    app (FastAPI): Instancia de la aplicación.
 """
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -110,10 +108,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 Capturador de excepciones globales. 
 Evita que la aplicación colapse ante errores críticos no previstos,
 registrándolos en el log y devolviendo un JSON seguro.
-
-Parámetros:
-    request (Request): Objeto de la petición original.
-    exc (Exception): Excepción capturada.
 """
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -241,9 +235,6 @@ async def torznab_endpoint(request: Request):
 Ruta proxy interna para la descarga de archivos .torrent reales.
 Inyecta la cookie de sesión del indexador para saltar muros de login
 y devuelve el archivo binario bittorrent original a Sonarr.
-
-Parámetros:
-    guid (str): El identificador único del torrent en el tracker original.
 """
 @app.get("/api/download/{guid}")
 async def proxy_download_torrent(guid: str):
@@ -303,10 +294,6 @@ async def proxy_download_torrent(guid: str):
 Endpoint para realizar una búsqueda manual controlada desde la interfaz web.
 Usa el modo 'interactivo' del scraper para devolver una lista de IDs cacheados
 en lugar de un XML.
-
-Parámetros:
-    q (str): El texto o término a buscar en el foro.
-    request (Request): Contexto de la petición web.
 """
 @app.get("/api/ui/search")
 async def interactive_search_endpoint(q: str, request: Request):
@@ -330,8 +317,21 @@ async def interactive_search_endpoint(q: str, request: Request):
         return {"success": True, "results": []}
 
     with Session(engine) as session:
-        db_results = session.exec(select(TorrentCache).where(TorrentCache.guid.in_(ids_encontrados))).all()
-        return {"success": True, "results": jsonable_encoder(db_results)}
+        statement = select(TorrentCache, TVDBCache.series_name_es, TVDBCache.poster_path).where(
+            TorrentCache.guid.in_(ids_encontrados)
+        ).join(
+            TVDBCache, TorrentCache.tvdb_id == TVDBCache.tvdb_id, isouter=True
+        )
+        results = session.exec(statement).all()
+        
+        payload = []
+        for torrent, tvdb_name_es, tvdb_poster in results:
+            t_dict = jsonable_encoder(torrent)
+            t_dict["tvdb_series_name_es"] = tvdb_name_es
+            t_dict["tvdb_poster_path"] = tvdb_poster
+            payload.append(t_dict)
+            
+        return {"success": True, "results": payload}
 
 
 # ==========================================
@@ -345,8 +345,20 @@ para popular las tablas de la interfaz de usuario.
 @app.get("/api/ui/cache")
 async def get_cache_list():
     with Session(engine) as session:
-        torrents = session.exec(select(TorrentCache).order_by(TorrentCache.guid.desc()).limit(2000)).all()
-        return {"torrents": jsonable_encoder(torrents)}
+        statement = select(TorrentCache, TVDBCache.series_name_es, TVDBCache.poster_path).join(
+            TVDBCache, TorrentCache.tvdb_id == TVDBCache.tvdb_id, isouter=True
+        ).order_by(TorrentCache.guid.desc()).limit(2000)
+        
+        results = session.exec(statement).all()
+        
+        payload = []
+        for torrent, tvdb_name_es, tvdb_poster in results:
+            t_dict = jsonable_encoder(torrent)
+            t_dict["tvdb_series_name_es"] = tvdb_name_es
+            t_dict["tvdb_poster_path"] = tvdb_poster
+            payload.append(t_dict)
+            
+        return {"torrents": payload}
 
 class EditCacheForm(BaseModel):
     ai_translated_title: str
@@ -433,6 +445,39 @@ async def import_cache_db(file: UploadFile = File(...)):
         logger.error(f"❌ Error importando caché: {e}")
         return {"success": False, "error": str(e)}
 
+# ==========================================
+# RUTAS: BIBLIOTECA TVDB (Caché Maestra)
+# ==========================================
+
+"""
+Renderiza la vista de la Biblioteca Maestra de TheTVDB.
+"""
+@app.get("/tvdb_cache")
+async def ui_tvdb_cache_view(request: Request):
+    return templates.TemplateResponse(request=request, name="views/tvdb_cache.html", context={})
+
+"""
+Obtiene todas las fichas maestras guardadas en la base de datos local.
+"""
+@app.get("/api/ui/tvdb_cache")
+async def get_tvdb_cache_list():
+    with Session(engine) as session:
+        tvdb_items = session.exec(select(TVDBCache).order_by(TVDBCache.series_name_es)).all()
+        return {"tvdb_cache": jsonable_encoder(tvdb_items)}
+
+"""
+Elimina una ficha maestra de la caché. (Útil si el usuario quiere forzar 
+que la IA vuelva a buscarla desde cero en el futuro).
+"""
+@app.delete("/api/ui/tvdb_cache/{tvdb_id}")
+async def delete_tvdb_cache_entry(tvdb_id: str):
+    with Session(engine) as session:
+        t = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == tvdb_id)).first()
+        if t:
+            session.delete(t)
+            session.commit()
+            return {"success": True}
+        return {"success": False}
 
 # ==========================================
 # API: SISTEMA Y SWITCHES AVANZADOS 

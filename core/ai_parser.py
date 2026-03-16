@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from core.database import engine
 from core.models.torrent import TorrentCache
 from core.models.system import AIConfig, SystemConfig
-
+from services.adapters.tvdb_scraper import fetch_full_tvdb_series 
 
 # ==========================================
 # PROCESAMIENTO AUTOMÁTICO INDIVIDUAL (1 a 1)
@@ -32,8 +32,10 @@ async def process_pending_torrents(specific_guids: list[str] = None):
             pending_torrents = session.exec(select(TorrentCache).where(TorrentCache.guid.in_(specific_guids)).limit(5)).all()
         else:
             query = select(TorrentCache).where(TorrentCache.ai_status == "Pendiente")
+            
             if sys_config and sys_config.tvdb_api_key and sys_config.tvdb_is_enabled:
-                query = query.where(TorrentCache.tvdb_status != "Pendiente")
+                query = query.where(TorrentCache.tvdb_status == "Candidatos")
+                
             pending_torrents = session.exec(query.limit(5)).all()
             
         if not pending_torrents: return 
@@ -61,9 +63,16 @@ async def process_pending_torrents(specific_guids: list[str] = None):
                     t.ai_translated_title = translated_title
                     t.ai_status = "Listo"
                 
-                if chosen_tvdb_id and str(chosen_tvdb_id).lower() not in ["null", "none"]:
+                if chosen_tvdb_id and str(chosen_tvdb_id).lower() not in ["null", "none", ""]:
                     t.tvdb_id = str(chosen_tvdb_id)
                     t.tvdb_status = "Listo"
+                    
+                    t.tvdb_candidates = None
+                    logger.info(f"🧹 Limpieza: Candidatos JSON eliminados para {t.guid} (Match exitoso).")
+                    
+                    if sys_config and sys_config.tvdb_is_enabled and sys_config.tvdb_api_key:
+                        await fetch_full_tvdb_series(t.tvdb_id, session, sys_config)
+                        
                 elif t.tvdb_candidates:
                     t.tvdb_status = "Revisión Manual"
                 
@@ -79,7 +88,7 @@ async def process_pending_torrents(specific_guids: list[str] = None):
                     raise e
                     
         if not specific_guids and success_count > 0:
-            logger.info(f"✅ Ciclo de procesamiento completado ({success_count}/{len(pending_torrents)}).")
+            logger.info(f"✅ Ciclo de IA completado ({success_count}/{len(pending_torrents)}).")
 
 """
 Realiza una prueba aislada del motor de IA con un torrent específico, sin guardar 
@@ -111,11 +120,6 @@ async def test_ai_connection(config: AIConfig) -> str:
         raise Exception(f"Error de conexión: {str(e)}")
 
 
-"""
-Construye el prompt definitivo que se enviará al modelo de lenguaje. 
-Reemplaza las variables mágicas del prompt personalizado del usuario o utiliza 
-la plantilla maestra del sistema para inyectar títulos, descripciones y candidatos TVDB.
-"""
 def _build_single_prompt(title: str, description: str, tvdb_candidates: str = None, custom_prompt: str = None) -> str:
     if custom_prompt and custom_prompt.strip():
         return custom_prompt.replace("{title}", title).replace("{description}", description).replace("{tvdb_candidates}", tvdb_candidates or "Sin candidatos.")
@@ -125,9 +129,10 @@ Eres un experto en metadatos de anime para Sonarr. Tu misión es normalizar tít
 
 REGLAS DE ORO:
 1. [FANSUB]: Mantén el primer bloque de fansub intacto (ej. [UnionFansub | User]).
-2. MATCH TVDB (PRIORIDAD ESPAÑOL): 
+2. MATCH TVDB (PRIORIDAD ABSOLUTA): 
    - Compara el 'Título Crudo' con el 'name' y la lista de 'aliases' de los candidatos.
-   - Si hay coincidencia, usa el 'name' del candidato (que está en español) para el título final.
+   - Si hay coincidencia, usa el 'name' EXACTO del candidato.
+   - ¡ESTRICTAMENTE PROHIBIDO traducir el nombre a Kanji o Japonés! Escríbelo usando el alfabeto latino exactamente como aparece en el JSON.
 3. DETECCIÓN DE TEMPORADA Y PACKS:
    - Prioridad 1: Buscar en el Título Crudo.
    - Prioridad 2: Si no está en el título, busca en la Sinopsis del Tracker (ej. "Tercera Temporada" -> S03).
@@ -176,10 +181,6 @@ Responde ÚNICAMENTE con JSON puro:
 }}"""
     return prompt
 
-"""
-Limpia la respuesta de texto devuelta por el LLM, eliminando bloques de código 
-Markdown (```json) o caracteres adicionales, e intenta convertirla en un diccionario.
-"""
 def _clean_and_parse_json(raw_text: str) -> dict:
     clean_text = re.sub(r"^```json\s*", "", raw_text.strip(), flags=re.IGNORECASE)
     clean_text = re.sub(r"```$", "", clean_text.strip()).strip()
@@ -194,14 +195,7 @@ def _clean_and_parse_json(raw_text: str) -> dict:
 # COMUNICACIÓN CON APIS EXTERNAS
 # ==========================================
 
-"""
-Realiza la llamada HTTP asíncrona al proveedor de IA correspondiente 
-adaptando el formato de la petición a las especificaciones de cada API.
-"""
 async def call_ai_provider(prompt: str, config: AIConfig) -> str:
-    """
-    Realiza la llamada HTTP asíncrona a la API estable (v1) de Gemini o OpenAI.
-    """
     timeout = httpx.Timeout(45.0, connect=10.0)
     
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -250,20 +244,3 @@ async def call_ai_provider(prompt: str, config: AIConfig) -> str:
             
         else:
             raise ValueError(f"Proveedor '{config.provider}' no soportado.")
-
-async def test_ai_connection(config: AIConfig) -> str:
-    """
-    Lanza un test de conexión y, en caso de fallo 404, intenta listar los modelos 
-    disponibles para ayudar al usuario a diagnosticar el error.
-    """
-    try:
-        prompt = "Responde únicamente: OK"
-        return await call_ai_provider(prompt, config)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404 and config.provider == "gemini":
-            diag_url = f"https://generativelanguage.googleapis.com/v1/models?key={config.api_key.strip()}"
-            async with httpx.AsyncClient() as client:
-                diag_resp = await client.get(diag_url)
-                logger.error(f"🔍 [DIAGNÓSTICO GEMINI] Tu API Key tiene acceso a estos modelos: {diag_resp.text}")
-            raise Exception("Error 404: El modelo no existe o no tienes acceso. Revisa el log para ver la lista de modelos disponibles.")
-        raise e
