@@ -6,6 +6,7 @@ window.currentCacheData = [];
 window.currentSearchData = [];
 window.currentActiveTorrent = null;
 window.currentLocalCandidates = [];
+window.currentSpecificCandidates = [];
 
 // ==========================================
 // 1. UTILIDADES Y HELPERS
@@ -886,19 +887,18 @@ async function openEditModal(guid) {
     p.style.backgroundImage = t.poster_url ? `url('/api/ui/poster?url=${encodeURIComponent(t.poster_url)}')` : 'none';
     
     try {
-        const res = await fetch('/api/ui/tvdb/local_candidates');
-        const data = await res.json();
-        if(data.success) {
-            window.currentLocalCandidates = data.results;
-            
-            if (t.tvdb_id) {
-                const existingShow = window.currentLocalCandidates.find(s => s.tvdb_id === t.tvdb_id);
-                if (existingShow) {
-                    selectOmniboxItem(existingShow.tvdb_id, existingShow.series_name_es);
-                } else {
-                    selectOmniboxItem(t.tvdb_id, `ID: ${t.tvdb_id}`);
-                }
-            }
+        const resLocal = await fetch('/api/ui/tvdb/local_candidates');
+        const dataLocal = await resLocal.json();
+        if(dataLocal.success) window.currentLocalCandidates = dataLocal.results;
+        
+        const resSpecific = await fetch(`/api/ui/torrent/${guid}/candidates`);
+        const dataSpecific = await resSpecific.json();
+        if(dataSpecific.success) window.currentSpecificCandidates = dataSpecific.results;
+        
+        if (t.tvdb_id) {
+            const existingShow = window.currentLocalCandidates.find(s => s.tvdb_id === t.tvdb_id);
+            if (existingShow) selectOmniboxItem(existingShow.tvdb_id, existingShow.series_name_es);
+            else selectOmniboxItem(t.tvdb_id, `ID: ${t.tvdb_id}`);
         }
     } catch(e) { console.error("Error cargando candidatos del Omnibox"); }
 
@@ -922,44 +922,68 @@ function filterOmnibox() {
     const dropdown = document.getElementById('omnibox_dropdown');
     dropdown.innerHTML = '';
     
-    const filtered = window.currentLocalCandidates.filter(s => {
-        const matchEs = s.series_name_es && s.series_name_es.toLowerCase().includes(q);
-        const matchAlias = s.aliases && s.aliases.toLowerCase().includes(q);
-        const matchId = s.tvdb_id && s.tvdb_id.includes(q);
-        return matchEs || matchAlias || matchId;
+    let hasResults = false;
+
+    const filteredSpecific = window.currentSpecificCandidates.filter(s => {
+        if (!q) return true;
+        return (s.series_name_es && s.series_name_es.toLowerCase().includes(q)) || 
+               (s.aliases && s.aliases.toLowerCase().includes(q)) || 
+               (s.tvdb_id && s.tvdb_id.includes(q));
     });
-    
-    if (filtered.length > 0) {
-        filtered.slice(0, 15).forEach(s => {
-            const div = document.createElement('div');
-            div.className = "flex items-center p-2 hover:bg-blue-900/50 cursor-pointer border-b border-gray-800 transition";
-            
-            const badge = s.is_full_record 
-                ? '<span class="ml-2 text-[10px] bg-green-900/50 text-green-400 px-1 rounded border border-green-700">Ficha Maestra</span>'
-                : '<span class="ml-2 text-[10px] bg-purple-900/50 text-purple-400 px-1 rounded border border-purple-700">Candidato</span>';
-                
-            div.innerHTML = `
-                <div class="flex-1 overflow-hidden">
-                    <div class="text-sm text-white font-bold truncate">${s.series_name_es} ${badge}</div>
-                    <div class="text-xs text-gray-500 font-mono">ID: ${s.tvdb_id} • Año: ${s.first_aired || '----'}</div>
-                </div>
-            `;
-            div.onclick = () => selectOmniboxItem(s.tvdb_id, s.series_name_es);
-            dropdown.appendChild(div);
-        });
+
+    if (filteredSpecific.length > 0) {
+        dropdown.innerHTML += `<div class="px-3 py-1 bg-yellow-900/40 text-yellow-500 text-[10px] font-bold uppercase tracking-wider border-b border-yellow-700/50">Candidatos Sugeridos por IA</div>`;
+        filteredSpecific.forEach(s => dropdown.appendChild(createOmniboxItem(s, true)));
+        hasResults = true;
     }
-    
+
+    const specificIds = window.currentSpecificCandidates.map(s => s.tvdb_id);
+    const filteredLocal = window.currentLocalCandidates.filter(s => {
+        if (specificIds.includes(s.tvdb_id)) return false;
+        if (!q) return false;
+        return (s.series_name_es && s.series_name_es.toLowerCase().includes(q)) || 
+               (s.aliases && s.aliases.toLowerCase().includes(q)) || 
+               (s.tvdb_id && s.tvdb_id.includes(q));
+    });
+
+    if (filteredLocal.length > 0) {
+        if (hasResults) dropdown.innerHTML += `<div class="h-1 bg-black border-t border-gray-800"></div>`;
+        dropdown.innerHTML += `<div class="px-3 py-1 bg-blue-900/40 text-blue-400 text-[10px] font-bold uppercase tracking-wider border-b border-blue-800/50">Búsqueda en Biblioteca Local</div>`;
+        filteredLocal.slice(0, 10).forEach(s => dropdown.appendChild(createOmniboxItem(s, false)));
+        hasResults = true;
+    }
+
     if (/^\d+$/.test(q)) {
         const manualDiv = document.createElement('div');
-        manualDiv.className = "p-3 bg-yellow-900/20 text-yellow-500 text-xs font-bold hover:bg-yellow-900/40 cursor-pointer border-t border-yellow-700/50 transition";
-        manualDiv.innerHTML = `<i class="fa-solid fa-cloud-arrow-down mr-2"></i> Forzar ID Manual: ${q}`;
+        manualDiv.className = "p-3 bg-gray-800 text-white text-xs font-bold hover:bg-gray-700 cursor-pointer border-t border-gray-600 transition";
+        manualDiv.innerHTML = `<i class="fa-solid fa-cloud-arrow-down mr-2 text-yellow-500"></i> Forzar ID Manual: ${q}`;
         manualDiv.onclick = () => selectOmniboxItem(q, `ID Forzado: ${q}`);
         dropdown.appendChild(manualDiv);
+        hasResults = true;
     }
+
+    if(!hasResults) {
+        dropdown.innerHTML = '<div class="p-3 text-xs text-gray-500 italic text-center">No se encontraron coincidencias.</div>';
+    }
+}
+
+function createOmniboxItem(s, isSuggested) {
+    const div = document.createElement('div');
+    const hoverClass = isSuggested ? "hover:bg-yellow-900/20" : "hover:bg-blue-900/30";
+    div.className = `flex items-center p-2 cursor-pointer border-b border-gray-800 transition ${hoverClass}`;
     
-    if(dropdown.innerHTML === '') {
-        dropdown.innerHTML = '<div class="p-3 text-xs text-gray-500 italic text-center">No se encontraron coincidencias locales.</div>';
-    }
+    const badge = s.is_full_record 
+        ? '<span class="ml-2 text-[10px] bg-green-900/50 text-green-400 px-1 rounded border border-green-700">Ficha Maestra</span>'
+        : '<span class="ml-2 text-[10px] bg-purple-900/50 text-purple-400 px-1 rounded border border-purple-700">Candidato</span>';
+        
+    div.innerHTML = `
+        <div class="flex-1 overflow-hidden">
+            <div class="text-sm text-white font-bold truncate">${s.series_name_es} ${badge}</div>
+            <div class="text-xs text-gray-500 font-mono">ID: ${s.tvdb_id} • Año: ${s.first_aired || '----'}</div>
+        </div>
+    `;
+    div.onclick = () => selectOmniboxItem(s.tvdb_id, s.series_name_es);
+    return div;
 }
 
 function selectOmniboxItem(tvdbId, displayName) {
@@ -1648,11 +1672,11 @@ function renderTvdbEpisodes(episodes, container) {
         
         seasons[seasonNum].forEach(ep => {
             const epRow = document.createElement('div');
-            epRow.className = "px-3 py-2 flex justify-between items-center hover:bg-gray-800/30 transition";
+            epRow.className = "px-3 py-3 flex justify-between items-center hover:bg-gray-800/30 transition border-b border-gray-800/50 last:border-0";
             epRow.innerHTML = `
-                <div class="flex items-center space-x-3 overflow-hidden">
-                    <span class="text-xs font-mono text-gray-600 bg-black px-1.5 py-0.5 rounded border border-gray-800 w-8 text-center">${ep.episode_number}</span>
-                    <span class="text-xs text-gray-300 truncate" title="${ep.name_es}">${ep.name_es}</span>
+                <div class="flex items-center space-x-3 w-full pr-4">
+                    <span class="text-xs font-mono text-gray-600 bg-black px-1.5 py-0.5 rounded border border-gray-800 w-8 text-center shrink-0">${ep.episode_number}</span>
+                    <span class="text-xs text-gray-300 leading-relaxed break-words whitespace-normal py-1" title="${ep.name_es}">${ep.name_es}</span>
                 </div>
                 <span class="text-[10px] text-gray-600 font-mono ml-2 shrink-0">${ep.air_date || 'Sin fecha'}</span>
             `;

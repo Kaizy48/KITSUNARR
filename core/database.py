@@ -17,7 +17,10 @@ sqlite_url = f"sqlite:///{sqlite_file_name}"
 engine = create_engine(
     sqlite_url, 
     echo=False,
-    connect_args={"check_same_thread": False}
+    connect_args={
+        "check_same_thread": False,
+        "timeout": 20.0  # <--- Este es el Mutex
+    }
 )
 
 
@@ -32,6 +35,8 @@ Esta función es llamada internamente al arrancar el servidor FastAPI en el cicl
 """
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
+    with engine.connect() as con:
+        con.exec_driver_sql("PRAGMA journal_mode=WAL;")
 
 """
 Generador de sesiones de base de datos.

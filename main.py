@@ -368,12 +368,24 @@ class EditCacheForm(BaseModel):
     tvdb_id: str = "" 
 
 """
+Helper asíncrono para descargar la ficha maestra y los episodios en segundo plano
+cuando el usuario asigna un ID de TheTVDB manualmente.
+"""
+async def background_fetch_tvdb(tvdb_id: str):
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        if config and config.tvdb_api_key:
+            logger.info(f"⚙️ [Background] Construyendo Ficha Maestra y Episodios para ID manual: {tvdb_id}")
+            await fetch_full_tvdb_series(tvdb_id, session, config)
+            await fetch_tvdb_episodes(tvdb_id, session, config)
+
+"""
 Recibe las modificaciones hechas por el usuario desde el Modal de Edición Manual.
-Sobrescribe el título de IA, la descripción y el ID de TheTVDB, marcando el estado
-como 'Manual' o 'Listo' según corresponda.
+Sobrescribe el título de IA, la descripción y el ID de TheTVDB.
+Si se proporciona un ID nuevo, dispara la descarga de metadatos en segundo plano.
 """
 @app.put("/api/ui/cache/{guid}")
-async def edit_cache_entry(guid: str, data: EditCacheForm):
+async def edit_cache_entry(guid: str, data: EditCacheForm, background_tasks: BackgroundTasks):
     with Session(engine) as session:
         t = session.exec(select(TorrentCache).where(TorrentCache.guid == guid)).first()
         if t:
@@ -382,11 +394,15 @@ async def edit_cache_entry(guid: str, data: EditCacheForm):
             t.ai_status = "Manual"
             
             if data.tvdb_id:
+                session.exec(delete(TorrentTVDBCandidates).where(TorrentTVDBCandidates.torrent_guid == guid))
+                
                 t.tvdb_id = data.tvdb_id
                 t.tvdb_status = "Listo"
+                
+                background_tasks.add_task(background_fetch_tvdb, data.tvdb_id)
             else:
                 t.tvdb_id = None
-                t.tvdb_status = "Candidatos" if t.tvdb_candidates else "Pendiente"
+                t.tvdb_status = "Pendiente"
                 
             session.commit()
             return {"success": True}
@@ -503,6 +519,21 @@ async def get_local_candidates():
     with Session(engine) as session:
         items = session.exec(select(TVDBCache)).all()
         return {"success": True, "results": jsonable_encoder(items)}
+    
+"""
+Devuelve únicamente los candidatos de TheTVDB que están estrictamente 
+vinculados a un Torrent específico mediante la tabla relacional.
+"""
+@app.get("/api/ui/torrent/{guid}/candidates")
+async def get_torrent_specific_candidates(guid: str):
+    with Session(engine) as session:
+        statement = select(TVDBCache).join(
+            TorrentTVDBCandidates, TVDBCache.tvdb_id == TorrentTVDBCandidates.tvdb_id
+        ).where(
+            TorrentTVDBCandidates.torrent_guid == guid
+        )
+        results = session.exec(statement).all()
+        return {"success": True, "results": jsonable_encoder(results)}
 
 """
 NUEVO: Realiza una búsqueda viva en TheTVDB (Búsqueda Interactiva de TVDB).
@@ -539,6 +570,32 @@ async def force_fetch_master(tvdb_id: str):
 # ==========================================
 # API: MOTOR DE INTELIGENCIA ARTIFICIAL (TÉCNICO)
 # ==========================================
+
+class AIAdvancedForm(BaseModel):
+    is_enabled: bool
+    is_automated: bool
+
+"""
+Guarda los ajustes avanzados del motor de IA (Activación global y automatización).
+"""
+@app.post("/api/ui/system/advanced")
+async def save_advanced_ai_settings(data: AIAdvancedForm):
+    with Session(engine) as session:
+        conf = session.exec(select(AIConfig)).first()
+        if not conf:
+            return {"success": False, "error": "Configuración de IA no inicializada."}
+            
+        conf.is_enabled = data.is_enabled
+        conf.is_automated = data.is_automated
+        
+        session.add(conf)
+        session.commit()
+        
+        estado = "Activada" if data.is_enabled else "Desactivada"
+        auto = "ON" if data.is_automated else "OFF"
+        logger.info(f"⚙️ Ajustes IA actualizados -> Motor: {estado} | Worker Automático: {auto}")
+        
+        return {"success": True}
 
 class AIPromptForm(BaseModel):
     custom_prompt: str
@@ -616,6 +673,10 @@ class TestAIRequest(BaseModel):
 Fuerza una nueva búsqueda de candidatos en TheTVDB para un torrent específico, 
 reiniciando su estado por si falló anteriormente. (Adaptado a Arquitectura Relacional)
 """
+"""
+Fuerza una nueva búsqueda de candidatos en TheTVDB para un torrent específico, 
+reiniciando su estado por si falló anteriormente. (Adaptado a Arquitectura Relacional)
+"""
 @app.post("/api/ui/tvdb/force_specific")
 async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
     with Session(engine) as session:
@@ -627,12 +688,15 @@ async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
             t = session.exec(select(TorrentCache).where(TorrentCache.guid == guid)).first()
             if t:
                 query = clean_for_tvdb(t.original_title)
+                logger.info(f"🔄 [Manual] Forzando re-escaneo en TVDB para '{query}' (Torrent: {guid})")
+                
                 try:
                     results = await asyncio.to_thread(_tvdb_search, config.tvdb_api_key, query)
                     
                     session.exec(delete(TorrentTVDBCandidates).where(TorrentTVDBCandidates.torrent_guid == guid))
                     
                     if results:
+                        logger.info(f"✅ [Manual] Encontrados {len(results)} candidatos para '{query}'. Actualizando base local...")
                         for r in results:
                             tvdb_id_str = str(r.get("tvdb_id"))
                             existing_show = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == tvdb_id_str)).first()
@@ -656,10 +720,13 @@ async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
                         t.tvdb_status = "Candidatos"
                         t.ai_status = "Pendiente"
                     else:
+                        logger.warning(f"⚠️ [Manual] TheTVDB no devolvió resultados para '{query}'.")
                         t.tvdb_status = "No Encontrado"
                         t.ai_status = "Manual"
+                    
                     session.commit()
                 except Exception as e:
+                    logger.error(f"❌ [Manual] Error forzando escaneo TVDB para '{query}': {str(e)}")
                     return {"success": False, "error": str(e)}
                     
         return {"success": True}
