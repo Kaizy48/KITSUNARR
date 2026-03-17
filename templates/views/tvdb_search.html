@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% set active_page = "tvdb_search" %}
+
+{% block title %}Búsqueda TVDB{% endblock %}
+{% block header_title %}BÚSQUEDA OFICIAL (THETVDB){% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col">
+    <div class="k-panel p-6 mb-6 border-l-4 border-l-blue-500">
+        <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-magnifying-glass-plus text-blue-500 mr-2"></i> Búsqueda en TheTVDB</h2>
+        <p class="text-sm text-gray-400 mb-4">Busca series en la base de datos oficial para poblar tu biblioteca local manualmente. Al añadir una serie, Kitsunarr descargará todas sus temporadas y episodios.</p>
+        
+        <div class="flex space-x-4 mb-4">
+            <input type="text" id="tvdbInteractiveSearchInput" onkeydown="if(event.key === 'Enter') runTvdbSearch()" placeholder="Escribe el nombre de la serie (ej. 'Campione')..." class="flex-1 bg-black border border-gray-700 rounded p-3 text-white outline-none focus:border-blue-500 transition">
+            <button onclick="runTvdbSearch()" id="btn_run_tvdb_search" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-8 rounded shadow-[0_0_15px_rgba(59,130,246,0.4)] hover:shadow-[0_0_25px_rgba(59,130,246,0.6)] border border-blue-400 transition-all duration-300">
+                <i class="fa-solid fa-cloud-arrow-down mr-2"></i> Buscar en API
+            </button>
+        </div>
+
+        <div id="tvdb_search_progress_container" class="hidden mt-2">
+            <div class="flex justify-between text-xs mb-1">
+                <span class="text-blue-400 font-bold" id="tvdb_search_status_text">Consultando servidores de TheTVDB...</span>
+            </div>
+            <div class="w-full bg-gray-800 rounded-full h-1 overflow-hidden">
+                <div class="bg-blue-500 h-1 rounded-full w-full animate-pulse"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="k-panel overflow-y-auto flex-1 custom-scrollbar p-6">
+        <div id="tvdb-search-results-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+            <div class="col-span-full text-center p-8 text-gray-500">
+                <i class="fa-solid fa-satellite-dish text-4xl mb-3 block opacity-50"></i>
+                Realiza una búsqueda para ver los resultados de la API oficial aquí.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

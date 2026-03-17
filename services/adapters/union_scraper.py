@@ -29,12 +29,6 @@ load_dotenv()
 """
 Convierte fechas en formato de texto español al formato RFC estándar 
 requerido por Sonarr en el XML Torznab.
-
-Parámetros:
-    date_str (str): Cadena de texto con la fecha en español (ej. '05 Mar 2024 16:30').
-
-Retorna:
-    str: Fecha formateada en estándar RFC, o la fecha y hora actuales en caso de error.
 """
 def parse_spanish_date_to_rfc(date_str: str) -> str:
     meses = {"Ene": "01", "Feb": "02", "Mar": "03", "Abr": "04", "May": "05", "Jun": "06", 
@@ -56,12 +50,6 @@ def parse_spanish_date_to_rfc(date_str: str) -> str:
 """
 Analiza el título procesado por la IA y extrae los números de temporada para 
 generar los atributos Torznab de Sonarr (soporta rangos como S01-S04 o temporadas únicas).
-
-Parámetros:
-    title (str): Título procesado y normalizado.
-
-Retorna:
-    list[int]: Lista de enteros que representan cada temporada contenida en el release.
 """
 def extract_seasons(title: str) -> list[int]:
     seasons = []
@@ -81,12 +69,6 @@ def extract_seasons(title: str) -> list[int]:
 """
 Extrae la sinopsis, metadatos técnicos y caducidad del freeleech 
 analizando el código HTML de la ficha de detalles de un torrent específico.
-
-Parámetros:
-    html_content (str): Código HTML completo de la página de detalles del tracker.
-
-Retorna:
-    dict: Diccionario estructurado con la información extraída.
 """
 def parse_ficha_metadata(html_content: str) -> dict:
     soup = BeautifulSoup(html_content, "lxml")
@@ -154,12 +136,6 @@ def parse_ficha_metadata(html_content: str) -> dict:
 """
 Convierte una cadena de texto que describe un tamaño (ej. '1.5 GB') en su 
 equivalente numérico en bytes enteros, necesario para el protocolo Torznab.
-
-Parámetros:
-    size_str (str): Cadena de texto representativa del tamaño.
-
-Retorna:
-    int: Tamaño numérico en bytes. Devuelve 0 en caso de no poder parsearlo.
 """
 def parse_size_to_bytes(size_str: str) -> int:
     size_str = size_str.replace(",", ".").upper().strip()
@@ -179,16 +155,6 @@ def parse_size_to_bytes(size_str: str) -> int:
 Ejecuta la búsqueda y extracción de datos del tracker principal simulando 
 un navegador personalizado de Kitsunarr. Gestiona la caché, extrae metadatos adicionales de cada ficha, 
 y devuelve los resultados en formato XML Torznab o una lista de IDs.
-
-Parámetros:
-    query (str): Término de búsqueda solicitado.
-    cookie_string (str): Cookie de sesión válida del usuario.
-    base_url (str): URL base de la aplicación Kitsunarr.
-    offset (int): Paginación de la búsqueda (por defecto 0).
-    interactivo (bool): Determina si se devuelve una lista de IDs o el XML directamente.
-
-Retorna:
-    str | list: XML en formato Torznab listo para Sonarr, o una lista de identificadores.
 """
 async def search_unionfansub_html(query: str, cookie_string: str, base_url: str, offset: int = 0, interactivo: bool = False) -> str | list:
     search_param = urllib.parse.quote(query) if query else ""
@@ -306,6 +272,7 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
                             
                             new_torrent = TorrentCache(
                                 indexer="unionfansub", guid=torrent_id,
+                                fansub_name=fansub_clean,
                                 original_title=original_title, enriched_title=enriched_title,
                                 description=ficha_data['description'], ai_status="Pendiente",
                                 poster_url=poster_url, size_bytes=size_bytes, 
@@ -339,13 +306,6 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
 """
 Construye la estructura XML válida bajo el esquema de Torznab para la respuesta.
 Inyecta dinámicamente los atributos Torznab avanzados de TVDB y Temporada para Sonarr.
-
-Parámetros:
-    torrents (list): Lista de diccionarios con la información pre-procesada de cada torrent.
-    query (str): El término de búsqueda que generó esta respuesta.
-
-Retorna:
-    str: Cadena de texto XML compatible con Sonarr/Prowlarr.
 """
 def generate_torznab_xml(torrents: list, query: str) -> str:
     xml_items = ""
@@ -395,12 +355,6 @@ def generate_torznab_xml(torrents: list, query: str) -> str:
 """
 Realiza una petición rápida de prueba al rastreador web utilizando las cabeceras 
 que simulan un navegador personalizado de Kitsunarr para verificar si la cookie actual sigue siendo válida.
-
-Parámetros:
-    cookie_string (str): La cookie de sesión que se debe probar.
-
-Retorna:
-    bool: True si la respuesta es 200 OK, False en caso contrario.
 """
 async def test_unionfansub_connection(cookie_string: str) -> bool:
     url = "https://torrent.unionfansub.com/browse.php"

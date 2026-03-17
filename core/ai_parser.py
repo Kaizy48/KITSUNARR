@@ -3,13 +3,15 @@
 # ==========================================
 import httpx
 import json
+import asyncio
 import re
 from core.logger import logger
-from sqlmodel import Session, select
+from sqlmodel import Session, select, delete
 from core.database import engine
-from core.models.torrent import TorrentCache
 from core.models.system import AIConfig, SystemConfig
-
+from datetime import datetime, timedelta
+from core.models.torrent import TorrentCache, TVDBCache, TorrentTVDBCandidates
+from services.adapters.tvdb_scraper import fetch_full_tvdb_series, fetch_tvdb_episodes 
 
 # ==========================================
 # PROCESAMIENTO AUTOMÁTICO INDIVIDUAL (1 a 1)
@@ -18,11 +20,7 @@ from core.models.system import AIConfig, SystemConfig
 """
 Procesa de forma automatizada o manual un lote de torrents pendientes, utilizando 
 el proveedor de Inteligencia Artificial configurado. Recupera metadatos, cruza 
-información con candidatos de TheTVDB y actualiza la base de datos con los resultados.
-
-Parámetros:
-    specific_guids (list[str], opcional): Lista de GUIDs específicos a procesar. 
-                                          Si se omite, buscará los pendientes automáticamente.
+información con la tabla de candidatos de TheTVDB y actualiza la base de datos.
 """
 async def process_pending_torrents(specific_guids: list[str] = None):
     with Session(engine) as session:
@@ -33,24 +31,63 @@ async def process_pending_torrents(specific_guids: list[str] = None):
         if not specific_guids and not config.is_automated: return 
         
         if specific_guids:
-            pending_torrents = session.exec(select(TorrentCache).where(TorrentCache.guid.in_(specific_guids)).limit(5)).all()
+            pending_torrents = session.exec(select(TorrentCache).where(TorrentCache.guid.in_(specific_guids))).all()
+            delay_between_requests = 0
         else:
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            processed_today = session.exec(
+                select(TorrentCache).where(
+                    (TorrentCache.ai_status.in_(["Listo", "Error"])) & 
+                    (TorrentCache.updated_at >= today_start)
+                )
+            ).all()
+            
+            if len(processed_today) >= config.rpd_limit:
+                logger.warning(f"⏸️ Límite diario de IA alcanzado ({config.rpd_limit}/{config.rpd_limit}). En pausa hasta mañana.")
+                return
+
+            delay_between_requests = 60.0 / config.rpm_limit if config.rpm_limit > 0 else 0
+            
             query = select(TorrentCache).where(TorrentCache.ai_status == "Pendiente")
             if sys_config and sys_config.tvdb_api_key and sys_config.tvdb_is_enabled:
-                query = query.where(TorrentCache.tvdb_status != "Pendiente")
-            pending_torrents = session.exec(query.limit(5)).all()
+                query = query.where(TorrentCache.tvdb_status == "Candidatos")
             
+            pending_torrents = session.exec(query.limit(5)).all()
+        
         if not pending_torrents: return 
         
         success_count = 0
         
-        for t in pending_torrents:
+        for i, t in enumerate(pending_torrents):
+            if i > 0 and delay_between_requests > 0:
+                logger.info(f"⏱️ Control RPM: Esperando {delay_between_requests:.1f}s para no saturar la API...")
+                await asyncio.sleep(delay_between_requests)
+                
             logger.info(f"🧠 Enviando a IA: '{t.enriched_title}' (GUID: {t.guid})")
+            
+            candidates_db = session.exec(
+                select(TVDBCache)
+                .join(TorrentTVDBCandidates)
+                .where(TorrentTVDBCandidates.torrent_guid == t.guid)
+            ).all()
+            
+            candidates_list = []
+            for c in candidates_db:
+                aliases_list = json.loads(c.aliases) if c.aliases else []
+                candidates_list.append({
+                    "tvdb_id": str(c.tvdb_id),
+                    "name": c.series_name_es,
+                    "aliases": aliases_list,
+                    "year": c.first_aired,
+                    "overview": c.overview_basic
+                })
+            
+            candidates_json_str = json.dumps(candidates_list, ensure_ascii=False) if candidates_list else None
             
             prompt = _build_single_prompt(
                 title=t.enriched_title, 
                 description=t.description or "Sin descripción", 
-                tvdb_candidates=t.tvdb_candidates,
+                tvdb_candidates=candidates_json_str,
                 custom_prompt=config.custom_prompt
             )
             
@@ -65,10 +102,18 @@ async def process_pending_torrents(specific_guids: list[str] = None):
                     t.ai_translated_title = translated_title
                     t.ai_status = "Listo"
                 
-                if chosen_tvdb_id and str(chosen_tvdb_id).lower() not in ["null", "none"]:
+                if chosen_tvdb_id and str(chosen_tvdb_id).lower() not in ["null", "none", ""]:
                     t.tvdb_id = str(chosen_tvdb_id)
                     t.tvdb_status = "Listo"
-                elif t.tvdb_candidates:
+                    
+                    session.exec(delete(TorrentTVDBCandidates).where(TorrentTVDBCandidates.torrent_guid == t.guid))
+                    logger.info(f"🧹 Limpieza: Relaciones temporales eliminadas para {t.guid} (Match exitoso).")
+                    
+                    if sys_config and sys_config.tvdb_is_enabled and sys_config.tvdb_api_key:
+                        await fetch_full_tvdb_series(t.tvdb_id, session, sys_config)
+                        await fetch_tvdb_episodes(t.tvdb_id, session, sys_config)
+                        
+                elif candidates_list:
                     t.tvdb_status = "Revisión Manual"
                 
                 session.commit()
@@ -83,27 +128,35 @@ async def process_pending_torrents(specific_guids: list[str] = None):
                     raise e
                     
         if not specific_guids and success_count > 0:
-            logger.info(f"✅ Ciclo de procesamiento completado ({success_count}/{len(pending_torrents)}).")
+            logger.info(f"✅ Ciclo de IA completado ({success_count}/{len(pending_torrents)}).")
 
 """
-Realiza una prueba aislada del motor de IA con un torrent específico, sin guardar 
-los cambios en la base de datos. Se utiliza en el entorno de pruebas de la interfaz web.
-
-Parámetros:
-    guid (str): Identificador único del torrent en la caché.
-    title (str): Título original o enriquecido del torrent.
-    description (str): Sinopsis extraída del tracker.
-    config (AIConfig): Objeto de configuración con las credenciales a probar.
-
-Retorna:
-    str: Cadena de texto con el resultado JSON devuelto por la IA.
+Realiza una prueba aislada del motor de IA con un torrent específico, simulando 
+los candidatos relacionales y devolviendo el JSON sin guardar cambios.
 """
 async def test_single_torrent_ai(guid: str, title: str, description: str, config: AIConfig) -> str:
     with Session(engine) as session:
         t = session.exec(select(TorrentCache).where(TorrentCache.guid == guid)).first()
-        candidates = t.tvdb_candidates if t else None
+        if not t:
+            raise Exception("Torrent no encontrado")
+            
+        candidates_db = session.exec(
+            select(TVDBCache)
+            .join(TorrentTVDBCandidates)
+            .where(TorrentTVDBCandidates.torrent_guid == t.guid)
+        ).all()
+        
+        candidates_list = []
+        for c in candidates_db:
+            aliases_list = json.loads(c.aliases) if c.aliases else []
+            candidates_list.append({
+                "tvdb_id": str(c.tvdb_id), "name": c.series_name_es,
+                "aliases": aliases_list, "year": c.first_aired, "overview": c.overview_basic
+            })
+        
+        candidates_json_str = json.dumps(candidates_list, ensure_ascii=False) if candidates_list else None
 
-    prompt = _build_single_prompt(t.enriched_title, t.description, t.tvdb_candidates, config.custom_prompt)
+    prompt = _build_single_prompt(t.enriched_title, t.description or "", candidates_json_str, config.custom_prompt)
     try:
         raw_result = await call_ai_provider(prompt, config)
         parsed_data = _clean_and_parse_json(raw_result)
@@ -114,12 +167,6 @@ async def test_single_torrent_ai(guid: str, title: str, description: str, config
 """
 Ejecuta un ping básico al proveedor de Inteligencia Artificial para verificar 
 la validez de la clave API o la conexión con el servidor local.
-
-Parámetros:
-    config (AIConfig): Objeto de configuración con los parámetros de red a probar.
-
-Retorna:
-    str: Respuesta directa generada por el modelo de lenguaje.
 """
 async def test_ai_connection(config: AIConfig) -> str:
     prompt = "Petición de testeo: responde únicamente con la frase exacta 'Estoy escuchando.' sin comillas ni texto adicional."
@@ -130,96 +177,67 @@ async def test_ai_connection(config: AIConfig) -> str:
         raise Exception(f"Error de conexión: {str(e)}")
 
 
-"""
-Construye el prompt definitivo que se enviará al modelo de lenguaje. 
-Reemplaza las variables mágicas del prompt personalizado del usuario o utiliza 
-la plantilla maestra del sistema para inyectar títulos, descripciones y candidatos TVDB.
-
-Parámetros:
-    title (str): Título del torrent a procesar.
-    description (str): Sinopsis proporcionada por el tracker.
-    tvdb_candidates (str, opcional): Cadena JSON con posibles coincidencias de TheTVDB.
-    custom_prompt (str, opcional): Plantilla personalizada definida por el usuario.
-
-Retorna:
-    str: El prompt final formateado y listo para el LLM.
-"""
 def _build_single_prompt(title: str, description: str, tvdb_candidates: str = None, custom_prompt: str = None) -> str:
     if custom_prompt and custom_prompt.strip():
-        prompt = custom_prompt
-        prompt = prompt.replace("{title}", title)
-        prompt = prompt.replace("{description}", description)
-        prompt = prompt.replace("{tvdb_candidates}", tvdb_candidates if tvdb_candidates else "Sin coincidencias en TVDB.")
-        return prompt
+        return custom_prompt.replace("{title}", title).replace("{description}", description).replace("{tvdb_candidates}", tvdb_candidates or "Sin candidatos.")
 
     prompt = f"""
-Eres un experto en organizar metadatos de anime para Sonarr. 
-Tu objetivo es normalizar el título de un torrent manteniendo INTEGRALMENTE los datos técnicos y aplicando reglas estrictas de nomenclatura.
+Eres un experto en metadatos de anime para Sonarr. Tu misión es normalizar títulos de torrents.
 
-REGLAS CRÍTICAS DE PROCESAMIENTO:
-1. [FANSUB]: Mantén el primer bloque de fansub exactamente como está.
-2. TÍTULO OFICIAL: 
-   - Extrae el nombre de la serie.
-   - ¡IMPORTANTE!: Si seleccionas un ID de TVDB de la lista de candidatos, DEBES renombrar la serie EXACTAMENTE con el 'name' oficial que aparece en la opción de TVDB elegida.
-3. TEMPORADAS Y PACKS:
-   - Busca en el título y en la sinopsis menciones a "Primera Temporada", "Segunda Temporada", etc. o formatos similares. 
-   - Si es un PACK o rango (Ej: "Temporadas 1-4"), conviértelo al estándar de Sonarr: "S01-S04".
-   - Si es una única temporada, conviértela al formato SXX (S01, S02...). 
-   - Si no hay mención y NO es un pack, usa S01 por defecto.
-4. [tvdb-ID]: Si seleccionas un ID de TVDB, insértalo como [tvdb-XXXXXX] justo después de la temporada/pack.
-5. METADATOS TÉCNICOS: Conserva TODOS los bloques entre corchetes del final (resolución, códecs, audios, subs). ¡PROHIBIDO BORRARLOS O RESUMIRLOS!
+REGLAS DE ORO:
+1. [FANSUB]: Mantén el primer bloque de fansub intacto (ej. [UnionFansub | User]).
+2. MATCH TVDB (PRIORIDAD ABSOLUTA): 
+   - Compara el 'Título Crudo' con el 'name' y la lista de 'aliases' de los candidatos.
+   - Si hay coincidencia, usa el 'name' EXACTO del candidato.
+   - ¡ESTRICTAMENTE PROHIBIDO traducir el nombre a Kanji o Japonés! Escríbelo usando el alfabeto latino exactamente como aparece en el JSON.
+3. DETECCIÓN DE TEMPORADA Y PACKS:
+   - Prioridad 1: Buscar en el Título Crudo.
+   - Prioridad 2: Si no está en el título, busca en la Sinopsis del Tracker (ej. "Tercera Temporada" -> S03).
+   - Formato Pack: "Temporadas 1-4" -> "S01-S04".
+   - Formato Único: "Temporada 2" -> "S02". 
+   - En caso de no encontrar coincidencia de temporada, por defecto usa S01.
+4. TVDB: Inserta [tvdb-ID] justo después de la temporada.
+5. METADATOS TÉCNICOS: Mantén todos los corchetes finales [Codec, Calidad, Audio, Subs] exactamente como están.
 
-DATOS PARA PROCESAR:
+DATOS ACTUALES:
 - Título Crudo: {title}
 - Sinopsis del Tracker: {description}
-"""
-    if tvdb_candidates:
-        prompt += f"""
-CANDIDATOS DE TVDB:
-{tvdb_candidates}
+CANDIDATOS TVDB: {tvdb_candidates if tvdb_candidates else "No hay candidatos."}
 
-REGLA TVDB: Si hay coincidencia, devuelve su 'tvdb_id'. Usa el 'name' de TVDB como título principal.
-"""
-
-    prompt += """
 EJEMPLOS DE ÉXITO:
 
-Entrada (Pack):
-Título: [UnionFansub | sempai23] Vaca y Pollo (Temporadas 1-4) [MPEG2, 728x544 (DVD)] [Audio: Castellano, Latino]
-Salida: {
-    "translated_title": "[UnionFansub | sempai23] Vaca y Pollo S01-S04 [tvdb-76196] [MPEG2, 728x544 (DVD)] [Audio: Castellano, Latino]",
+ESCENARIO 1: PACK DE TEMPORADAS
+Entrada: [UnionFansub | User] Vaca y Pollo (Temporadas 1-4) [DVD] [Esp]
+Candidato: {{"tvdb_id": "76196", "name": "Vaca y Pollo"}}
+Salida: {{
+    "translated_title": "[UnionFansub | User] Vaca y Pollo S01-S04 [tvdb-76196] [DVD] [Esp]",
     "tvdb_id": "76196"
-}
+}}
 
-Entrada (Normalización Nombre):
-Título: [UnionFansub | Unmei] Campione!: Matsurowanu Kamigami to Kamigoroshi no Maou [1080p] [Jap-Esp]
-Opciones TVDB: [{"tvdb_id": "259646", "name": "Campione!"}]
-Salida: {
-    "translated_title": "[UnionFansub | Unmei] Campione! S01 [tvdb-259646] [1080p] [Jap-Esp]",
-    "tvdb_id": "259646"
-}
+ESCENARIO 2: TEMPORADA EN SINOPSIS (Título sin temporada)
+Entrada Título: [UnionFansub] Ataque a los Titanes [1080p]
+Sinopsis: "...en esta épica Tercera Temporada de la serie..."
+Candidato: {{"tvdb_id": "267440", "name": "Ataque a los Titanes"}}
+Salida: {{
+    "translated_title": "[UnionFansub] Ataque a los Titanes S03 [tvdb-267440] [1080p]",
+    "tvdb_id": "267440"
+}}
 
-FORMATO DE SALIDA: Responde ÚNICAMENTE con JSON puro.
-{
+ESCENARIO 3: MATCH POR ALIAS (Japonés -> Español)
+Entrada: [UnionFansub] Shingeki no Kyojin [720p]
+Candidato: {{"tvdb_id": "267440", "name": "Ataque a los Titanes", "aliases": ["Shingeki no Kyojin", "Attack on Titan"]}}
+Salida: {{
+    "translated_title": "[UnionFansub] Ataque a los Titanes S01 [tvdb-267440] [720p]",
+    "tvdb_id": "267440"
+}}
+
+Responde ÚNICAMENTE con JSON puro:
+{{
     "translated_title": "Título final",
-    "tvdb_id": "ID en string o null"
-}
-"""
+    "tvdb_id": "ID o null"
+}}"""
     return prompt
 
-"""
-Limpia la respuesta de texto devuelta por el LLM, eliminando bloques de código 
-Markdown (```json) o caracteres adicionales, e intenta convertirla en un diccionario.
-
-Parámetros:
-    raw_text (str): Texto crudo devuelto por la Inteligencia Artificial.
-
-Retorna:
-    dict: Diccionario estructurado con el título traducido y el ID de TVDB.
-
-Excepciones:
-    ValueError: Si la respuesta final no es un JSON válido o parseable.
-"""
 def _clean_and_parse_json(raw_text: str) -> dict:
     clean_text = re.sub(r"^```json\s*", "", raw_text.strip(), flags=re.IGNORECASE)
     clean_text = re.sub(r"```$", "", clean_text.strip()).strip()
@@ -234,14 +252,7 @@ def _clean_and_parse_json(raw_text: str) -> dict:
 # COMUNICACIÓN CON APIS EXTERNAS
 # ==========================================
 
-"""
-Realiza la llamada HTTP asíncrona al proveedor de IA correspondiente 
-adaptando el formato de la petición a las especificaciones de cada API.
-"""
 async def call_ai_provider(prompt: str, config: AIConfig) -> str:
-    """
-    Realiza la llamada HTTP asíncrona a la API estable (v1) de Gemini o OpenAI.
-    """
     timeout = httpx.Timeout(45.0, connect=10.0)
     
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -290,20 +301,3 @@ async def call_ai_provider(prompt: str, config: AIConfig) -> str:
             
         else:
             raise ValueError(f"Proveedor '{config.provider}' no soportado.")
-
-async def test_ai_connection(config: AIConfig) -> str:
-    """
-    Lanza un test de conexión y, en caso de fallo 404, intenta listar los modelos 
-    disponibles para ayudar al usuario a diagnosticar el error.
-    """
-    try:
-        prompt = "Responde únicamente: OK"
-        return await call_ai_provider(prompt, config)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404 and config.provider == "gemini":
-            diag_url = f"https://generativelanguage.googleapis.com/v1/models?key={config.api_key.strip()}"
-            async with httpx.AsyncClient() as client:
-                diag_resp = await client.get(diag_url)
-                logger.error(f"🔍 [DIAGNÓSTICO GEMINI] Tu API Key tiene acceso a estos modelos: {diag_resp.text}")
-            raise Exception("Error 404: El modelo no existe o no tienes acceso. Revisa el log para ver la lista de modelos disponibles.")
-        raise e

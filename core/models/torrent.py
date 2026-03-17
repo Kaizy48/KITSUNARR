@@ -1,36 +1,95 @@
 # ==========================================
 # MODELOS DE DATOS: CACHÉ DE TORRENTS Y TVDB
 # ==========================================
-from sqlmodel import SQLModel, Field
-from typing import Optional
+from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, List
 from datetime import datetime
 
+# ==========================================
+# 1. TABLA INTERMEDIA (RELACIÓN N:M)
+# ==========================================
 """
-Modelo de base de datos que representa un torrent extraído de un indexador y guardado localmente.
-Almacena tanto la información original en crudo como los metadatos procesados y traducidos por la IA.
+Tabla de unión para la relación "Muchos a Muchos" entre Torrents y Fichas TVDB.
+Permite que un torrent tenga múltiples "candidatos" iniciales sin duplicar datos,
+y que una ficha de TVDB pueda ser candidata para muchos torrents distintos.
+"""
+class TorrentTVDBCandidates(SQLModel, table=True):
+    torrent_guid: str = Field(foreign_key="torrentcache.guid", primary_key=True)
+    tvdb_id: str = Field(foreign_key="tvdbcache.tvdb_id", primary_key=True)
 
-Atributos:
-- guid: Identificador único del tracker original (Clave Primaria).
-- original_title: Nombre del torrent tal y como aparece en el tracker.
-- enriched_title: Nombre del torrent tras un escaneo básico para extraer calidad y códecs.
-- ai_translated_title: Título final perfectamente normalizado por la IA.
-- description: Sinopsis extraída directamente de la página del torrent.
-- poster_url: Enlace a la imagen de portada o banner del anime.
-- size_bytes: Tamaño exacto del archivo en bytes, requerido por el protocolo Torznab.
-- indexer: Nombre del indexador de origen (por defecto 'unionfansub').
-- download_url: Enlace directo o de proxy para la descarga del archivo .torrent.
-- pub_date: Fecha de publicación en formato RFC estándar para Sonarr.
-- freeleech_until: Fecha límite de caducidad si el torrent tiene estado Freeleech.
-- ai_status: Estado actual del procesamiento de IA ('Pendiente', 'Listo', 'Manual', 'Error').
-- tvdb_id: Identificador numérico oficial de la serie en la base de datos de TheTVDB.
-- tvdb_status: Estado de la vinculación con TVDB ('Pendiente', 'Candidatos', 'Listo', 'Error', 'No Encontrado').
-- tvdb_candidates: Almacenamiento en JSON de las posibles coincidencias devueltas por TheTVDB.
+
+# ==========================================
+# 2. ESTRUCTURA DE EPISODIOS (TVDB)
+# ==========================================
 """
+Almacena los episodios individuales de una serie de TVDB.
+Esencial para el futuro renombrado preciso de archivos mediante el Worker Regex.
+"""
+class TVDBEpisodes(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tvdb_id: str = Field(foreign_key="tvdbcache.tvdb_id", index=True)
+    season_number: int
+    episode_number: int
+    name_es: Optional[str] = None
+    name_en: Optional[str] = None
+    air_date: Optional[str] = None
+    
+    # Relación inversa con la Ficha Maestra
+    series: Optional["TVDBCache"] = Relationship(back_populates="episodes")
+
+
+# ==========================================
+# 3. BIBLIOTECA MAESTRA DE THETVDB
+# ==========================================
+"""
+Enciclopedia local de metadatos. Ahora soporta dos estados:
+- is_full_record = False (Ficha Básica): Creada al buscar candidatos (Nombre, Año, Sinopsis Básica).
+- is_full_record = True (Ficha Maestra): Actualizada al hacer Match (Temporadas, Episodios, HQ Poster).
+"""
+class TVDBCache(SQLModel, table=True):
+    tvdb_id: str = Field(primary_key=True)
+    series_name_es: str
+    series_name_en: Optional[str] = None
+    aliases: Optional[str] = None 
+    
+    # Textos Descriptivos
+    overview_basic: Optional[str] = None # Sinopsis corta de la búsqueda (Para ayudar a la IA)
+    overview_es: Optional[str] = None # Sinopsis completa oficial
+    overview_en: Optional[str] = None
+    
+    # Imágenes
+    poster_path: Optional[str] = None
+    banner_path: Optional[str] = None
+    
+    # Metadatos
+    status: Optional[str] = None
+    first_aired: Optional[str] = None
+    seasons_data: Optional[str] = None 
+    
+    # Control de Frescura y Estado
+    is_full_record: bool = Field(default=False)
+    last_updated: datetime = Field(default_factory=datetime.utcnow)
+
+    # ================= Relaciones =================
+    # 1 a Muchos: Una serie tiene muchos episodios
+    episodes: List[TVDBEpisodes] = Relationship(back_populates="series", cascade_delete=True)
+    # 1 a Muchos: Una serie puede ser el resultado final (match) de muchos torrents
+    torrents: List["TorrentCache"] = Relationship(back_populates="tvdb_series")
+    # Muchos a Muchos: Esta serie es "candidata" para varios torrents no resueltos
+    candidate_for: List["TorrentCache"] = Relationship(back_populates="candidates", link_model=TorrentTVDBCandidates)
+
+
+# ==========================================
+# 4. CACHÉ DE TORRENTS Y ESTADO DEL CLIENTE
+# ==========================================
 class TorrentCache(SQLModel, table=True):
     guid: str = Field(primary_key=True)
+    info_hash: Optional[str] = Field(default=None, index=True)
+    
+    # Metadatos del Tracker
+    fansub_name: Optional[str] = None
     original_title: str
     enriched_title: str
-    ai_translated_title: Optional[str] = None
     description: Optional[str] = None
     poster_url: Optional[str] = None
     size_bytes: int = 0
@@ -38,27 +97,28 @@ class TorrentCache(SQLModel, table=True):
     download_url: Optional[str] = None
     pub_date: Optional[str] = None
     freeleech_until: Optional[datetime] = None
+    
+    # Procesamiento IA y TVDB
+    ai_translated_title: Optional[str] = None
     ai_status: str = "Pendiente"
-    tvdb_id: Optional[str] = Field(default=None, index=True)
+    
+    # Clave Foránea apuntando al ID final de la serie
+    tvdb_id: Optional[str] = Field(default=None, foreign_key="tvdbcache.tvdb_id", index=True)
     tvdb_status: str = Field(default="Pendiente")
-    tvdb_candidates: Optional[str] = None
+    # ❌ ELIMINADO: tvdb_candidates (Adios al JSON pesado)
 
-"""
-Modelo de base de datos para almacenar metadatos oficiales cacheados desde TheTVDB.
-Se utiliza para evitar saturar la API externa y permitir cruzar información validada con los torrents.
+    # Estado del Cliente de Descargas
+    client_status: Optional[str] = "unknown"
+    peers_seeds: int = 0
+    peers_leechs: int = 0
+    progress: float = 0.0
+    exists_in_client: bool = False
+    
+    added_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-Atributos:
-- tvdb_id: Identificador numérico oficial y único de TheTVDB (Clave Primaria).
-- search_query: Cadena de texto exacta que se utilizó para realizar la búsqueda original.
-- series_title: Nombre canónico y oficial de la serie devuelto por TheTVDB.
-- poster_path: URL de la carátula oficial en alta calidad.
-- synopsis: Resumen oficial u overview proporcionado por TheTVDB.
-- last_updated: Fecha de la última actualización de estos metadatos en la base de datos local.
-"""
-class TVDBCache(SQLModel, table=True):
-    tvdb_id: str = Field(primary_key=True)
-    search_query: str = Field(index=True)
-    series_title: str
-    poster_path: Optional[str] = None
-    synopsis: Optional[str] = None
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    # ================= Relaciones =================
+    # Relación final: El anime al que pertenece oficialmente
+    tvdb_series: Optional[TVDBCache] = Relationship(back_populates="torrents")
+    # Relación temporal: Los posibles animes que la IA debe evaluar
+    candidates: List[TVDBCache] = Relationship(back_populates="candidate_for", link_model=TorrentTVDBCandidates)

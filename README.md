@@ -6,44 +6,66 @@
 
 <p align="center">
   <strong>Proxy Inteligente & Indexador</strong><br>
-  El puente entre trackers de nicho y la automatización inteligente.
+  El puente definitivo entre trackers de nicho y la automatización avanzada.
 </p>
 
 ---
 
 ### 🦊 ¿Qué es Kitsunarr?
 
-**Kitsunarr** es un proxy e indexador especializado diseñado para escenarios donde herramientas generalistas como Prowlarr no logran una integración perfecta con trackers de anime complejos. Actúa como un **reformateador activo** que traduce el contenido de trackers de nicho al estándar **Torznab** que Sonarr entiende a la perfección.
-
-Se centra exclusivamente en el ecosistema del anime, proporcionando una capa de inteligencia que normaliza nombres, extrae metadatos técnicos y asegura que tu biblioteca esté siempre bien organizada.
+**Kitsunarr** es un proxy e indexador especializado para escenarios donde herramientas generalistas no logran una integración perfecta con trackers de anime complejos. Actúa como un **reformateador activo** que traduce el contenido de trackers de nicho al estándar **Torznab** que Sonarr entiende a la perfección.
 
 ---
 
-### ✨ Características Principales
+######### 📡 INDEXADORES Y SCRAPING 🔍 #########
 
-* **🚀 Proxy e Indexador Torznab**: Habilita la compatibilidad de trackers privados de nicho con Sonarr.
-* **🔍 Scraping Avanzado**: Raspado automático de fichas técnicas para extraer metadatos completos (códecs, subtítulos, resoluciones y sinopsis) y generar resultados preparados para Sonarr.
-* **⚡ Caché Inteligente**: Base de datos local que almacena resultados para realizar menos peticiones a los trackers, optimizando el rendimiento y protegiendo tu cuenta.
-* **🧪 Búsqueda Interactiva**: Interfaz dedicada para realizar búsquedas manuales con vista previa detallada de las fichas almacenadas.
-* **📟 Consola de Eventos**: Terminal interna para monitorizar logs y procesos del sistema en tiempo real.
-* **🎨 UI Moderna y Amigable**: Interfaz oscura (Cyberpunk-inspired) diseñada para facilitar la navegación y gestión de datos.
+* **Compatibilidad Nativa**: Scraper optimizado con soporte para navegación interactiva y RSS.
+* **Gestión de Sesión**: Sistema de Auto-Login y renovación automática de cookies para evitar interrupciones en las descargas.
+* **Extracción Profunda**: Captura metadatos técnicos avanzados (códecs de video, múltiples pistas de audio, idiomas de subtítulos).
+* **Búsqueda Interactiva**: Realiza búsquedas manuales desde la UI que disparan un raspado en tiempo real de los indexadores configurados.
+
+######### 🧠 MOTOR DE INTELIGENCIA ARTIFICIAL 🤖 #########
+
+* **Multi-Proveedor**: Soporte integrado para **Gemini**, **OpenAI** y **Ollama** (LLMs locales).
+* **Procesamiento Automatizado**: Trabajadores de fondo que limpian títulos, identifican temporadas y resuelven conflictos de nombres sin intervención humana.
+* **Laboratorio de Pruebas**: Interfaz dedicada para probar prompts, con ajustes en config para límites de tokens (RPM/TPM) y visualizar la respuesta cruda de la IA.
+* **Batch Processing**: Capacidad de enviar lotes de torrents pendientes para una normalización inmediata.
+
+######### 📺 INTEGRACIÓN CON THETVDB (v4) 🇯🇵 #########
+
+* **Jerarquía Romaji/Latino**: Sistema de nombres inteligente que prioriza la pronunciación japonesa en letras latinas para una identificación rápida (ej: *Saihate no Paladin* antes que *El paladín lejano*).
+* **Enciclopedia Local**: Descarga y almacena sinopsis traducidas, pósters de alta calidad y estados de emisión.
+* **Sincronización de Episodios**: Obtiene listas completas de capítulos con títulos traducidos y formateados bajo el estándar `SxxExx - Nombre`.
+* **Omnibox con Alias**: Buscador inteligente que detecta coincidencias incluso por nombres alternativos de las series.
+
+######### 🖼️ VISTA EN PÓSTER Y GALERÍA 🎭 #########
+
+* **Identificación Visual**: Interfaz basada en cuadrículas de pósters para una navegación intuitiva por tu biblioteca local y los resultados de búsqueda.
+* **Tarjetas Informativas**: Cada título muestra de un vistazo su estado de procesamiento, fansub de origen y año de estreno.
+* **Efectos de Interacción**: Animaciones de zoom y overlays de información detallada al pasar el cursor sobre las carátulas.
+* **Filtros en Tiempo Real**: Buscador instantáneo que filtra la galería de pósters por nombre, ID o alias mientras escribes.
+
+######### 🗄️ CACHÉ Y BASE DE DATOS RELACIONAL 🔗 #########
+
+* **Ficha Técnica Dual**: Modal de visualización que permite comparar los datos originales del tracker frente a los datos enriquecidos de la biblioteca TVDB local.
+* **Gestión de Estados**: Árbol de iconos semánticos para identificar el progreso de cada ficha (Pendiente ⏳, Candidatos 📋, Validado ✅, Revisión Manual 👁️).
+
+######### 📦 EXPORTACIÓN E IMPORTACIÓN MODULAR 💾 #########
+
+* **Módulo de Torrents**: Exporta fichas crudas para pedir ayuda a otros usuarios en el procesamiento de nombres.
+* **Módulo TVDB**: Comparte tu base de conocimientos (metadatos y episodios) con la comunidad.
+* **Bundle de Backup**: Copia de seguridad total que empaqueta Torrents, Fichas TVDB y sus Relaciones (candidatos de la ficha).
+* **Rehidratación Inteligente**: Al importar, Kitsunarr reconstruye automáticamente las URLs de descarga locales y descarga las fichas maestras huérfanas en segundo plano.
+
+######### 🎨 INTERFAZ Y EXPERIENCIA (UX) 🖥️ #########
+
+* **Diseño Panorámico**: Nueva Ficha Maestra en 3 columnas optimizada para monitores modernos y lectura cómoda de sinopsis.
+* **Aviso de Actualizaciones**: Sistema conectado a la API de GitHub que notifica automáticamente cuando hay una nueva versión disponible en el repositorio.
+* **Consola de Eventos**: Registro detallado de actividad en tiempo real para monitorizar el comportamiento de los workers de fondo.
 
 ---
 
-### 🧠 Inteligencia Artificial y Precisión
-
-#### Integración con LLMs
-Kitsunarr se integra con servicios de **IA locales (Ollama)** o en la **nube (Google Gemini, OpenAI)** para elevar la precisión de los metadatos. Esta capa de inteligencia se encarga de:
-* Refinar la generación de fichas de contenido.
-* Estructurar nombres de episodios y temporadas de forma coherente.
-* Mejorar el acierto de "hits" en Sonarr mediante la normalización de títulos complejos.
-
-#### Validación con TheTVDB
-Utiliza **TheTVDB** como fuente de contraste externa para validar IDs de series y temporadas, asegurando que cada archivo en la caché esté correctamente vinculado a los estándares de la industria.
-
----
-
-### 📦 Instalación con Docker
+### 🐳 Instalación con Docker
 
 La forma recomendada de ejecutar Kitsunarr es mediante docker.
 
@@ -79,6 +101,7 @@ services:
       - ${KITSUNARR_CONFIG}:/app/data
 ```
 
+---
 
 ### ⚖️ Licencia y Transparencia
 
@@ -93,13 +116,10 @@ Este proyecto es de **Código Abierto** bajo la licencia **GNU GPL v3**. Creemos
 ⚠️ Disclaimer (Aviso Legal)
 Kitsunarr es una herramienta de software diseñada exclusivamente como un proxy de metadatos y organizador de información para uso personal.
 
-No comparte archivos: Kitsunarr no aloja, distribuye ni facilita la descarga de archivos protegidos por derechos de autor.
-
-No es un cliente de descarga: La aplicación no descarga contenido; su única función es facilitar la comunicación de datos entre servicios de terceros.
-
-Responsabilidad: El usuario es el único responsable del uso que haga de esta herramienta, de las credenciales de trackers que configure y de asegurar que su actividad cumple con las leyes locales y los términos de servicio de terceros.
-
-Independencia: Kitsunarr no tiene afiliación oficial con Sonarr o Prowlarr.
+* **No comparte archivos**: Kitsunarr no aloja, distribuye ni facilita la descarga de archivos protegidos por derechos de autor.
+* **No es un cliente de descarga**: La aplicación no descarga contenido; su única función es facilitar la comunicación de datos entre servicios de terceros.
+* **Responsabilidad**: El usuario es el único responsable del uso que haga de esta herramienta y de asegurar que su actividad cumple con las leyes locales.
 
 #####################
-Desarrollado para hacer el self-hosting de anime más inteligente y sencillo. 🦊✨
+
+**Desarrollado con ❤️ para hacer el self-hosting de anime más inteligente y sencillo. Firmado Kaizy_48** 🦊✨

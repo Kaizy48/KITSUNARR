@@ -46,3 +46,6 @@ class AIConfig(SQLModel, table=True):
     api_key: str = ""
     base_url: str = "http://localhost:11434"
     custom_prompt: Optional[str] = Field(default=None)
+    rpm_limit: int = Field(default=5)
+    tpm_limit: int = Field(default=250000)
+    rpd_limit: int = Field(default=20)

@@ -155,6 +155,54 @@
                 </div>
             </div>
             
+            <div id="ai_limits_container" class="border-t border-gray-800 pt-4 mt-2 transition-all duration-300">
+                <h3 class="text-sm font-bold text-gray-300 mb-3"><i class="fa-solid fa-traffic-light mr-2 text-blue-400"></i> Límites de Cuota (API)</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Límite RPM</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-gauge-high absolute left-3 top-3 text-gray-600"></i>
+                            <input type="number" id="ai_rpm" value="{{ ai_config.rpm_limit }}" class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
+                        </div>
+                        <p class="text-[10px] text-gray-500 mt-1.5 leading-tight">
+                            <strong class="text-gray-400">R</strong>equests <strong class="text-gray-400">P</strong>er <strong class="text-gray-400">M</strong>inute.<br>
+                            Define la velocidad de escaneo. Kitsunarr calculará pausas automáticas para no exceder este número de peticiones por minuto.
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Límite TPM</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-coins absolute left-3 top-3 text-gray-600"></i>
+                            <input type="number" id="ai_tpm" value="{{ ai_config.tpm_limit }}" class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
+                        </div>
+                        <p class="text-[10px] text-gray-500 mt-1.5 leading-tight">
+                            <strong class="text-gray-400">T</strong>okens <strong class="text-gray-400">P</strong>er <strong class="text-gray-400">M</strong>inute.<br>
+                            Volumen máximo de "palabras" que la API procesa por minuto. (Normalmente 250k a 1 Millón en planes gratuitos).
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Límite RPD</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-calendar-day absolute left-3 top-3 text-gray-600"></i>
+                            <input type="number" id="ai_rpd" value="{{ ai_config.rpd_limit }}" class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
+                        </div>
+                        <p class="text-[10px] text-gray-500 mt-1.5 leading-tight">
+                            <strong class="text-gray-400">R</strong>equests <strong class="text-gray-400">P</strong>er <strong class="text-gray-400">D</strong>ay.<br>
+                            Tope diario. El trabajador automático se pausará hasta el día siguiente si alcanza este número de torrents procesados.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mt-4 p-3 bg-blue-900/10 border border-blue-900/30 rounded-lg flex gap-3 items-start shadow-inner">
+                    <i class="fa-solid fa-circle-info text-blue-400 mt-0.5"></i>
+                    <p class="text-xs text-gray-400 leading-relaxed">
+                        Estos límites protegen tu cuenta de bloqueos temporales (Errores 429) durante el procesamiento en segundo plano.<br>
+                        <span class="block mt-1"><strong class="text-yellow-500 font-bold">💡 Consejo:</strong> Si utilizas esta misma API Key para otras aplicaciones o bots, es recomendable configurar aquí valores <strong>menores al máximo permitido</strong> por tu proveedor. Así reservarás cupo y Kitsunarr no agotará tus recursos diarios.</span>
+                    </p>
+                </div>
+            </div>
+
             <div class="pt-4 flex justify-end border-t border-gray-800">
                 <button onclick="saveAIConfig()" class="btn-primary glow-yellow px-8 shadow-lg">
                     <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar Conexión LLM
