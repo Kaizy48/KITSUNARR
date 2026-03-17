@@ -806,16 +806,17 @@ function renderCacheGrid(data) {
         let fansubTag = t.fansub_name ? `[${t.fansub_name}]` : `[UnionFansub]`;
         
         let iaIcon = '';
-        if (t.ai_status === 'Listo') iaIcon = '<i class="fa-solid fa-check text-green-500" title="IA Lista"></i>';
-        else if (t.ai_status === 'Manual') iaIcon = '<i class="fa-solid fa-user-pen text-purple-400" title="IA Editada Manualmente"></i>';
-        else if (t.ai_status === 'Error') iaIcon = '<i class="fa-solid fa-xmark text-red-500" title="Error IA"></i>';
-        else iaIcon = '<i class="fa-solid fa-robot text-gray-600" title="IA Pendiente"></i>';
+        if (t.ai_status === 'Listo') iaIcon = '<i class="fa-solid fa-circle-check text-green-500" title="IA Lista"></i>';
+        else if (t.ai_status === 'Manual') iaIcon = '<i class="fa-solid fa-user-gear text-blue-400" title="IA Editada Manualmente"></i>';
+        else if (t.ai_status === 'Error') iaIcon = '<i class="fa-solid fa-triangle-exclamation text-red-500" title="Error IA"></i>';
+        else iaIcon = '<i class="fa-solid fa-hourglass-start text-gray-500" title="IA Pendiente"></i>';
 
         let tvdbIcon = '';
-        if (t.tvdb_status === 'Listo') tvdbIcon = '<i class="fa-solid fa-check text-green-500" title="TVDB Validado"></i>';
-        else if (t.tvdb_status === 'Revisión Manual' || t.tvdb_status === 'Manual') tvdbIcon = '<i class="fa-solid fa-user-pen text-purple-400" title="TVDB Editado Manualmente"></i>';
-        else if (t.tvdb_status === 'Error' || t.tvdb_status === 'No Encontrado') tvdbIcon = '<i class="fa-solid fa-xmark text-red-500" title="Error TVDB"></i>';
-        else tvdbIcon = '<i class="fa-solid fa-tv text-gray-600" title="TVDB Pendiente / Candidatos"></i>';
+        if (t.tvdb_status === 'Listo') tvdbIcon = '<i class="fa-solid fa-circle-check text-green-500" title="TVDB Validado"></i>';
+        else if (t.tvdb_status === 'Revisión Manual') tvdbIcon = '<i class="fa-solid fa-eye text-orange-400" title="Requiere Revisión Manual"></i>';
+        else if (t.tvdb_status === 'Candidatos') tvdbIcon = '<i class="fa-solid fa-list-check text-purple-400" title="Candidatos Encontrados"></i>';
+        else if (t.tvdb_status === 'Error' || t.tvdb_status === 'No Encontrado') tvdbIcon = '<i class="fa-solid fa-magnifying-glass-question text-red-400" title="No Encontrado"></i>';
+        else tvdbIcon = '<i class="fa-solid fa-hourglass-start text-gray-500" title="TVDB Pendiente"></i>';
 
         const posterUrl = t.poster_url ? `/api/ui/poster?url=${encodeURIComponent(t.poster_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
 
@@ -917,6 +918,17 @@ function hideOmniboxDelayed() {
     }, 200); 
 }
 
+// Helper para detectar la coincidencia exacta de alias
+function getAliasMatch(s, q) {
+    if (!q || !s.aliases) return null;
+    try {
+        const aliasArr = JSON.parse(s.aliases);
+        const matched = aliasArr.find(a => a.toLowerCase().includes(q));
+        if (matched) return matched;
+    } catch(e) {}
+    return null;
+}
+
 function filterOmnibox() {
     const q = document.getElementById('edit_tvdb_search').value.toLowerCase().trim();
     const dropdown = document.getElementById('omnibox_dropdown');
@@ -926,9 +938,10 @@ function filterOmnibox() {
 
     const filteredSpecific = window.currentSpecificCandidates.filter(s => {
         if (!q) return true;
+        s._matchedAlias = getAliasMatch(s, q);
         return (s.series_name_es && s.series_name_es.toLowerCase().includes(q)) || 
-               (s.aliases && s.aliases.toLowerCase().includes(q)) || 
-               (s.tvdb_id && s.tvdb_id.includes(q));
+               (s.tvdb_id && s.tvdb_id.includes(q)) || 
+               s._matchedAlias;
     });
 
     if (filteredSpecific.length > 0) {
@@ -941,9 +954,10 @@ function filterOmnibox() {
     const filteredLocal = window.currentLocalCandidates.filter(s => {
         if (specificIds.includes(s.tvdb_id)) return false;
         if (!q) return false;
+        s._matchedAlias = getAliasMatch(s, q);
         return (s.series_name_es && s.series_name_es.toLowerCase().includes(q)) || 
-               (s.aliases && s.aliases.toLowerCase().includes(q)) || 
-               (s.tvdb_id && s.tvdb_id.includes(q));
+               (s.tvdb_id && s.tvdb_id.includes(q)) ||
+               s._matchedAlias;
     });
 
     if (filteredLocal.length > 0) {
@@ -976,10 +990,13 @@ function createOmniboxItem(s, isSuggested) {
         ? '<span class="ml-2 text-[10px] bg-green-900/50 text-green-400 px-1 rounded border border-green-700">Ficha Maestra</span>'
         : '<span class="ml-2 text-[10px] bg-purple-900/50 text-purple-400 px-1 rounded border border-purple-700">Candidato</span>';
         
+    const aliasHtml = s._matchedAlias ? `<div class="text-[10px] text-purple-400 mt-1"><i class="fa-solid fa-tags mr-1"></i> Alias coincidente: <span class="font-bold">${s._matchedAlias}</span></div>` : '';
+
     div.innerHTML = `
         <div class="flex-1 overflow-hidden">
             <div class="text-sm text-white font-bold truncate">${s.series_name_es} ${badge}</div>
-            <div class="text-xs text-gray-500 font-mono">ID: ${s.tvdb_id} • Año: ${s.first_aired || '----'}</div>
+            ${aliasHtml}
+            <div class="text-xs text-gray-500 font-mono mt-1">ID: ${s.tvdb_id} • Año: ${s.first_aired || '----'}</div>
         </div>
     `;
     div.onclick = () => selectOmniboxItem(s.tvdb_id, s.series_name_es);
@@ -1030,8 +1047,52 @@ async function deleteCacheEntry(guid) {
     } catch(e) { showToast("Error de red.", false); }
 }
 
-async function exportCache() {
-    window.location.href = '/api/ui/cache/export';
+// --- EXPORTACIÓN E IMPORTACIÓN MODULAR ---
+
+function openExportModal() {
+    const m = document.getElementById('exportModal');
+    if (m) m.classList.remove('hidden');
+}
+
+function closeExportModal() {
+    const m = document.getElementById('exportModal');
+    if (m) m.classList.add('hidden');
+}
+
+function submitExport() {
+    const selected = document.querySelector('input[name="export_type"]:checked');
+    if (!selected) return showToast("Selecciona una opción de exportación.", false);
+    
+    showToast(`Generando archivo de exportación (${selected.value})...`);
+    window.location.href = `/api/ui/cache/export?module=${selected.value}`;
+    closeExportModal();
+}
+
+async function handleImportCache(event) {
+    const file = event.target.files[0];
+    if(!file) return;
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+        showToast("Analizando e importando datos relacionales...");
+        const res = await fetch('/api/ui/cache/import', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if(data.success) {
+            let msg = `Importación exitosa. ${data.total || data.count} registros insertados.`;
+            if (data.missing_count > 0) msg += ` Descargando ${data.missing_count} series huérfanas en 2º plano.`;
+            showToast(msg, true);
+            loadCacheGrid();
+        } else {
+            showToast("Error: " + data.error, false);
+        }
+    } catch(e) { showToast("Error de red durante la importación.", false); }
+    
+    event.target.value = ''; 
 }
 
 async function handleImportCache(event) {
@@ -1846,5 +1907,69 @@ async function fetchTvdbMaster(tvdb_id, btnElement) {
         btnElement.innerHTML = originalHtml;
         btnElement.disabled = false;
         showToast("Error de red al descargar la ficha.", false);
+    }
+}
+
+// ==========================================
+// 14. CONTROL DE VERSIÓN Y ACTUALIZACIONES
+// ==========================================
+
+const APP_VERSION = "0.3.0"; 
+const GITHUB_REPO = "Kaizy48/KITSUNARR"; 
+
+document.addEventListener("DOMContentLoaded", () => {
+    checkAppVersion();
+});
+
+async function checkAppVersion() {
+    const storedVersion = localStorage.getItem('kitsunarr_version');
+
+    if (storedVersion !== APP_VERSION) {
+        const modal = document.getElementById('versionModal');
+        const content = document.getElementById('versionModalContent');
+        const versionText = document.getElementById('modal_version_text');
+        
+        if(modal && content && versionText) {
+            versionText.innerText = `Beta ${APP_VERSION}`; 
+            
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                content.classList.remove('scale-95');
+            }, 10);
+        }
+        return;
+    }
+
+    try {
+        const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+        if (res.ok) {
+            const data = await res.json();
+            const latestTag = data.tag_name;
+            const cleanLatest = latestTag.replace('v', '').replace('V', '');
+            
+            if (cleanLatest !== APP_VERSION && isNewerVersion(cleanLatest, APP_VERSION)) {
+                showToast(`¡Nueva versión ${latestTag} disponible en GitHub!`, true);
+            }
+        }
+    } catch (e) {
+        console.log("Comprobación de actualizaciones en GitHub omitida (Sin conexión).");
+    }
+}
+
+function isNewerVersion(latest, current) {
+    return latest.localeCompare(current, undefined, { numeric: true, sensitivity: 'base' }) > 0;
+}
+
+function closeVersionModal() {
+    const modal = document.getElementById('versionModal');
+    const content = document.getElementById('versionModalContent');
+    if(modal && content) {
+        modal.classList.add('opacity-0');
+        content.classList.add('scale-95');
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            localStorage.setItem('kitsunarr_version', APP_VERSION);
+        }, 300);
     }
 }

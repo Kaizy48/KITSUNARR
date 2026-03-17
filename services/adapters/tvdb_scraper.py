@@ -85,7 +85,7 @@ async def process_pending_tvdb():
                             try: trans_eng = await asyncio.to_thread(_tvdb_get_translations, config.tvdb_api_key, tvdb_id_str, "eng")
                             except: trans_eng = {}
                             
-                            best_name = trans_spa.get("name") or trans_eng.get("name") or r.get("name", "Desconocido")
+                            best_name = trans_eng.get("name") or trans_spa.get("name") or r.get("name", "Desconocido")
                             best_overview = trans_spa.get("overview") or trans_eng.get("overview") or r.get("overview", "Sin sinopsis")
 
                             raw_aliases = r.get("aliases", [])
@@ -145,7 +145,7 @@ async def fetch_full_tvdb_series(tvdb_id: str, session: Session, config: SystemC
         try: translation_eng = await asyncio.to_thread(_tvdb_get_translations, config.tvdb_api_key, tvdb_id, "eng")
         except: translation_eng = {}
 
-        name_es = translation_spa.get("name") or translation_eng.get("name") or data.get("name", "Desconocido")
+        name_es = translation_eng.get("name") or translation_spa.get("name") or data.get("name", "Desconocido")
         overview_es = translation_spa.get("overview") or translation_eng.get("overview") or data.get("overview", "")
         
         seasons_dict = {}

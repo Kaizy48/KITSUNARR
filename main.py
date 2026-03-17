@@ -26,6 +26,7 @@ from core.tracker_login import auto_renew_cookie
 from services.adapters.union_scraper import search_unionfansub_html, test_unionfansub_connection
 from services.adapters.tvdb_scraper import process_pending_tvdb
 from services.adapters.tvdb_scraper import clean_for_tvdb, _tvdb_search
+from services.export import export_torrents_only, export_tvdb_only, export_full_bundle, import_relational_data
 from core.models.indexer import IndexerConfig
 from core.models.torrent import TorrentCache
 from core.models.torrent import TorrentTVDBCandidates
@@ -422,43 +423,55 @@ async def delete_cache_entry(guid: str):
         return {"success": False}
 
 """
-Extrae la tabla completa de torrents cacheados y la devuelve al navegador 
-en un archivo JSON descargable a modo de copia de seguridad.
+Extrae la base de conocimientos estructurada según el módulo solicitado.
+Puede exportar solo torrents, solo metadatos TVDB, o un Bundle relacional maestro.
 """
 @app.get("/api/ui/cache/export")
-async def export_cache_db():
+async def export_cache_db(module: str = "bundle"):
     with Session(engine) as session:
-        torrents = session.exec(select(TorrentCache)).all()
-        json_data = jsonable_encoder(torrents)
+        if module == "torrents":
+            json_data = export_torrents_only(session)
+            filename = "kitsunarr_torrents.json"
+        elif module == "tvdb":
+            json_data = export_tvdb_only(session)
+            filename = "kitsunarr_tvdb.json"
+        else:  # bundle
+            json_data = export_full_bundle(session)
+            filename = "kitsunarr_bundle.json"
+            
         return Response(
             content=json.dumps(json_data, indent=2), 
             media_type="application/json", 
-            headers={"Content-Disposition": "attachment; filename=kitsunarr_cache.json"}
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
 
 """
-Permite subir un archivo JSON con un volcado previo de torrents e inserta 
-todos los registros que no existan ya en la base de datos local.
+Permite subir un archivo JSON (Bundle parcial o total) e inserta 
+los registros de forma segura validando llaves foráneas.
+Dispara descargas de TheTVDB en segundo plano para IDs huérfanos.
 """
 @app.post("/api/ui/cache/import")
-async def import_cache_db(file: UploadFile = File(...)):
+async def import_cache_db(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     try:
         content = await file.read()
         data = json.loads(content)
-        imported_count = 0
+        base_url = str(request.base_url).rstrip("/")
         
         with Session(engine) as session:
-            for item in data:
-                existing = session.exec(select(TorrentCache).where(TorrentCache.guid == item.get("guid"))).first()
-                if not existing:
-                    filtered_item = {k: v for k, v in item.items() if k != "id"}
-                    new_t = TorrentCache(**filtered_item)
-                    session.add(new_t)
-                    imported_count += 1
-            session.commit()
+            result = import_relational_data(data, session, base_url)
             
-        logger.info(f"📦 Importación de Caché exitosa: {imported_count} nuevos torrents añadidos.")
-        return {"success": True, "count": imported_count}
+        missing_ids = result.get("missing_tvdb_ids", [])
+        for tvdb_id in missing_ids:
+            background_tasks.add_task(background_fetch_tvdb, tvdb_id)
+            
+        counts = result.get("counts", {})
+        total_imported = sum(counts.values())
+        
+        if missing_ids:
+            logger.warning(f"⚠️ Importación parcial: {len(missing_ids)} torrents apuntan a series desconocidas. Iniciando descarga TVDB en segundo plano...")
+            
+        return {"success": True, "counts": counts, "missing_count": len(missing_ids), "total": total_imported}
+        
     except Exception as e:
         logger.error(f"❌ Error importando caché: {e}")
         return {"success": False, "error": str(e)}
