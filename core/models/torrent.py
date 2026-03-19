@@ -1,9 +1,15 @@
 # ==========================================
+# IMPORTS Y CONFIGURACIÓN INICIAL
+# ==========================================
+from datetime import datetime
+from typing import List, Optional
+
+from sqlmodel import Field, Relationship, SQLModel
+
+
+# ==========================================
 # MODELOS DE DATOS: CACHÉ DE TORRENTS Y TVDB
 # ==========================================
-from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional, List
-from datetime import datetime
 
 # ==========================================
 # 1. TABLA INTERMEDIA (RELACIÓN N:M)
@@ -82,6 +88,10 @@ class TVDBCache(SQLModel, table=True):
 # ==========================================
 # 4. CACHÉ DE TORRENTS Y ESTADO DEL CLIENTE
 # ==========================================
+"""
+Almacena la información extraída de los trackers y el estado de su 
+procesamiento por la IA y TheTVDB, así como el progreso de descarga.
+"""
 class TorrentCache(SQLModel, table=True):
     guid: str = Field(primary_key=True)
     info_hash: Optional[str] = Field(default=None, index=True)
@@ -105,7 +115,6 @@ class TorrentCache(SQLModel, table=True):
     # Clave Foránea apuntando al ID final de la serie
     tvdb_id: Optional[str] = Field(default=None, foreign_key="tvdbcache.tvdb_id", index=True)
     tvdb_status: str = Field(default="Pendiente")
-    # ❌ ELIMINADO: tvdb_candidates (Adios al JSON pesado)
 
     # Estado del Cliente de Descargas
     client_status: Optional[str] = "unknown"

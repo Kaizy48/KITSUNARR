@@ -108,11 +108,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    document.addEventListener("DOMContentLoaded", () => {
-        if(typeof loadTvdbCache === 'function') {
-            loadTvdbCache();
-        }
-    });
-</script>
+<script src="{{ url_for('static', path='js/views/tvdb_library.js') }}"></script>
 {% endblock %}

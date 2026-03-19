@@ -37,12 +37,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    document.addEventListener("DOMContentLoaded", () => {
-        if(typeof fetchLogs === 'function') {
-            fetchLogs();
-            setInterval(fetchLogs, 5000); 
-        }
-    });
-</script>
+<script src="{{ url_for('static', path='js/views/events.js') }}"></script>
 {% endblock %}

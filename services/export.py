@@ -1,20 +1,27 @@
 # ==========================================
-# MOTOR DE EXPORTACIÓN E IMPORTACIÓN RELACIONAL
+# IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
 import json
+import asyncio
 from datetime import datetime
+
+from core.database import engine
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
 from core.logger import logger
 from core.models.torrent import TorrentCache, TVDBCache, TVDBEpisodes, TorrentTVDBCandidates
 
+
 # ==========================================
 # FUNCIONES AUXILIARES DE LIMPIEZA Y REHIDRATACIÓN
 # ==========================================
 
+"""
+Convierte un string ISO 8601 de un JSON a un objeto datetime nativo de Python.
+Reemplaza la 'Z' (común en Javascript) para mantener la compatibilidad ISO.
+"""
 def safe_parse_datetime(date_str: str | None):
-    """Convierte un string ISO 8601 de un JSON a un objeto datetime nativo de Python."""
     if not date_str:
         return None
     try:
@@ -23,19 +30,20 @@ def safe_parse_datetime(date_str: str | None):
     except ValueError:
         return None
 
+"""
+Convierte el modelo de base de datos a un diccionario serializable 
+y elimina datos locales o sensibles (como la URL de descarga del proxy).
+"""
 def sanitize_torrent_for_export(torrent: TorrentCache) -> dict:
-    """
-    Convierte el modelo a diccionario y elimina datos locales o sensibles.
-    """
     data = jsonable_encoder(torrent)
     data.pop("download_url", None) 
     return data
 
+"""
+Reconstruye los campos dinámicos y parsea los tipos de dato correctos 
+(como las fechas) antes de insertar un torrent en la nueva base de datos.
+"""
 def rehydrate_torrent_data(t_data: dict, base_url: str) -> dict:
-    """
-    Reconstruye los campos dinámicos y los tipos de dato (como fechas)
-    antes de insertar en la nueva base de datos.
-    """
     guid = t_data.get("guid", "")
     t_data["download_url"] = f"{base_url}/api/download/{guid}_base"
     
@@ -51,8 +59,11 @@ def rehydrate_torrent_data(t_data: dict, base_url: str) -> dict:
 # MÓDULOS DE EXPORTACIÓN
 # ==========================================
 
+"""
+Exporta únicamente la caché de torrents y sus candidatos asociados.
+Ideal para copias de seguridad rápidas o crowdsourcing de entrenamiento de IA.
+"""
 def export_torrents_only(session: Session) -> dict:
-    """Exporta solo la caché de torrents y sus candidatos (Crowdsourcing IA)."""
     torrents = session.exec(select(TorrentCache)).all()
     candidates = session.exec(select(TorrentTVDBCandidates)).all()
     
@@ -62,8 +73,11 @@ def export_torrents_only(session: Session) -> dict:
         "candidates": jsonable_encoder(candidates)
     }
 
+"""
+Exporta en exclusiva la base de conocimientos oficial de TheTVDB 
+(Fichas Maestras y Episodios). Útil para compartir metadatos estructurados.
+"""
 def export_tvdb_only(session: Session) -> dict:
-    """Exporta solo la base de conocimientos oficial (Ideal para compartir)."""
     tvdb_shows = session.exec(select(TVDBCache).where(TVDBCache.is_full_record == True)).all()
     tvdb_episodes = session.exec(select(TVDBEpisodes)).all()
     
@@ -73,8 +87,11 @@ def export_tvdb_only(session: Session) -> dict:
         "tvdb_episodes": jsonable_encoder(tvdb_episodes)
     }
 
+"""
+Exporta TODA la base de datos relacional en un único archivo (Bundle), 
+pero limitándose a los torrents que ya han sido verificados con éxito (Tick Verde).
+"""
 def export_full_bundle(session: Session) -> dict:
-    """Exporta TODA la base de datos, pero solo los torrents verificados con éxito (Tick Verde)."""
     torrents = session.exec(select(TorrentCache).where(TorrentCache.tvdb_status == "Listo")).all()
     tvdb_shows = session.exec(select(TVDBCache).where(TVDBCache.is_full_record == True)).all()
     tvdb_episodes = session.exec(select(TVDBEpisodes)).all()
@@ -93,73 +110,84 @@ def export_full_bundle(session: Session) -> dict:
 # MOTOR DE IMPORTACIÓN INTELIGENTE
 # ==========================================
 
-def import_relational_data(data: dict, session: Session, base_url: str) -> dict:
-    """
-    Importa los datos respetando el orden de las Foreign Keys para no romper SQLite.
-    Retorna una lista de tvdb_ids huérfanos para que el main.py inicie su descarga.
-    """
+"""
+Importa los datos JSON en la base local respetando el orden de las Foreign Keys 
+para no romper la integridad de SQLite. Utiliza transacciones granulares 
+(batch commits) para no bloquear la BD durante importaciones masivas.
+"""
+async def import_relational_data(data: dict, base_url: str) -> dict:
     imported_counts = {"torrents": 0, "tvdb": 0, "episodes": 0, "candidates": 0}
     missing_tvdb_ids = set()
+    BATCH_SIZE = 100
     
-    # 1. Importar Fichas Maestras (TVDBCache) - Nivel 0 Relacional
     if "tvdb_cache" in data:
-        for show_data in data["tvdb_cache"]:
-            existing = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == show_data["tvdb_id"])).first()
-            if not existing:
-                # Arreglo Fecha: String -> Datetime
-                show_data["last_updated"] = safe_parse_datetime(show_data.get("last_updated")) or datetime.utcnow()
-                
-                new_show = TVDBCache(**show_data)
-                session.add(new_show)
-                imported_counts["tvdb"] += 1
-        session.commit()
+        for i in range(0, len(data["tvdb_cache"]), BATCH_SIZE):
+            batch = data["tvdb_cache"][i:i+BATCH_SIZE]
+            with Session(engine) as session:
+                for show_data in batch:
+                    existing = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == show_data["tvdb_id"])).first()
+                    if not existing:
+                        show_data["last_updated"] = safe_parse_datetime(show_data.get("last_updated")) or datetime.utcnow()
+                        new_show = TVDBCache(**show_data)
+                        session.add(new_show)
+                        imported_counts["tvdb"] += 1
+                session.commit()
+            await asyncio.sleep(0.01)
         
-    # 2. Importar Episodios (TVDBEpisodes) - Depende de Nivel 0
     if "tvdb_episodes" in data:
-        for ep_data in data["tvdb_episodes"]:
-            parent_exists = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == ep_data["tvdb_id"])).first()
-            if parent_exists:
-                ep_data.pop("id", None) 
-                new_ep = TVDBEpisodes(**ep_data)
-                session.add(new_ep)
-                imported_counts["episodes"] += 1
-        session.commit()
+        for i in range(0, len(data["tvdb_episodes"]), BATCH_SIZE):
+            batch = data["tvdb_episodes"][i:i+BATCH_SIZE]
+            with Session(engine) as session:
+                for ep_data in batch:
+                    parent_exists = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == ep_data["tvdb_id"])).first()
+                    if parent_exists:
+                        ep_data.pop("id", None) 
+                        new_ep = TVDBEpisodes(**ep_data)
+                        session.add(new_ep)
+                        imported_counts["episodes"] += 1
+                session.commit()
+            await asyncio.sleep(0.01)
         
-    # 3. Importar Torrents (TorrentCache) - Pueden depender de Nivel 0
     if "torrents" in data:
-        for t_data in data["torrents"]:
-            existing = session.exec(select(TorrentCache).where(TorrentCache.guid == t_data["guid"])).first()
-            if not existing:
-                clean_t_data = rehydrate_torrent_data(t_data, base_url)
-                
-                tvdb_id = clean_t_data.get("tvdb_id")
-                if tvdb_id:
-                    show_exists = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == tvdb_id)).first()
-                    if not show_exists:
-                        clean_t_data["tvdb_status"] = "Pendiente"
-                        missing_tvdb_ids.add(tvdb_id)
-                
-                new_t = TorrentCache(**clean_t_data)
-                session.add(new_t)
-                imported_counts["torrents"] += 1
-        session.commit()
+        for i in range(0, len(data["torrents"]), BATCH_SIZE):
+            batch = data["torrents"][i:i+BATCH_SIZE]
+            with Session(engine) as session:
+                for t_data in batch:
+                    existing = session.exec(select(TorrentCache).where(TorrentCache.guid == t_data["guid"])).first()
+                    if not existing:
+                        clean_t_data = rehydrate_torrent_data(t_data, base_url)
+                        tvdb_id = clean_t_data.get("tvdb_id")
+                        if tvdb_id:
+                            show_exists = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == tvdb_id)).first()
+                            if not show_exists:
+                                clean_t_data["tvdb_status"] = "Pendiente"
+                                missing_tvdb_ids.add(tvdb_id)
+                        
+                        new_t = TorrentCache(**clean_t_data)
+                        session.add(new_t)
+                        imported_counts["torrents"] += 1
+                session.commit()
+            await asyncio.sleep(0.01)
         
-    # 4. Importar Tabla Puente (TorrentTVDBCandidates) - Depende de Nivel 0 y Nivel 3
     if "candidates" in data:
-        for cand_data in data["candidates"]:
-            t_exists = session.exec(select(TorrentCache).where(TorrentCache.guid == cand_data["torrent_guid"])).first()
-            show_exists = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == cand_data["tvdb_id"])).first()
-            
-            if t_exists and show_exists:
-                link_exists = session.exec(select(TorrentTVDBCandidates).where(
-                    TorrentTVDBCandidates.torrent_guid == cand_data["torrent_guid"],
-                    TorrentTVDBCandidates.tvdb_id == cand_data["tvdb_id"]
-                )).first()
-                if not link_exists:
-                    new_link = TorrentTVDBCandidates(**cand_data)
-                    session.add(new_link)
-                    imported_counts["candidates"] += 1
-        session.commit()
+        for i in range(0, len(data["candidates"]), BATCH_SIZE):
+            batch = data["candidates"][i:i+BATCH_SIZE]
+            with Session(engine) as session:
+                for cand_data in batch:
+                    t_exists = session.exec(select(TorrentCache).where(TorrentCache.guid == cand_data["torrent_guid"])).first()
+                    show_exists = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == cand_data["tvdb_id"])).first()
+                    
+                    if t_exists and show_exists:
+                        link_exists = session.exec(select(TorrentTVDBCandidates).where(
+                            TorrentTVDBCandidates.torrent_guid == cand_data["torrent_guid"],
+                            TorrentTVDBCandidates.tvdb_id == cand_data["tvdb_id"]
+                        )).first()
+                        if not link_exists:
+                            new_link = TorrentTVDBCandidates(**cand_data)
+                            session.add(new_link)
+                            imported_counts["candidates"] += 1
+                session.commit()
+            await asyncio.sleep(0.01)
 
     logger.info(f"📦 Importación finalizada: {imported_counts}")
     return {"counts": imported_counts, "missing_tvdb_ids": list(missing_tvdb_ids)}

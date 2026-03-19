@@ -11,7 +11,7 @@ assignees: Kaizy48
 
 - [ ] He seguido la guía de configuración en la [Wiki de Kitsunarr](https://github.com/Kaizy48/Kitsunarr/wiki).
 - [ ] He revisado los logs en la **Consola de Eventos** de la interfaz web.
-- [ ] He verificado que mi versión de Kitsunarr está actualizada (Rama `main` o `X.X.X`).
+- [ ] He verificado que mi versión de Kitsunarr está actualizada (Imagen `latest` o `X.X.X`).
 
 ## 📝 Descripción del Problema
 *Describe de forma clara y concisa qué es lo que está fallando.*

@@ -1,28 +1,55 @@
 # ==========================================
-# MOTOR DE INTELIGENCIA ARTIFICIAL (IA PARSER)
+# IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
-import httpx
 import json
-import asyncio
 import re
-from core.logger import logger
+import asyncio
+from datetime import datetime, timedelta
+
+import httpx
 from sqlmodel import Session, select, delete
+
+from core.logger import logger
 from core.database import engine
 from core.models.system import AIConfig, SystemConfig
-from datetime import datetime, timedelta
 from core.models.torrent import TorrentCache, TVDBCache, TorrentTVDBCandidates
 from services.adapters.tvdb_scraper import fetch_full_tvdb_series, fetch_tvdb_episodes 
 
+# Variables globales en memoria RAM (Circuit Breaker)
+_ai_sleep_until = None
+_ram_daily_count = 0
+_ram_last_date = None
+
+
 # ==========================================
-# PROCESAMIENTO AUTOMÁTICO INDIVIDUAL (1 a 1)
+# PROCESAMIENTO PRINCIPAL DE TORRENTS
 # ==========================================
 
 """
-Procesa de forma automatizada o manual un lote de torrents pendientes, utilizando 
-el proveedor de Inteligencia Artificial configurado. Recupera metadatos, cruza 
-información con la tabla de candidatos de TheTVDB y actualiza la base de datos.
+Procesa de forma automatizada o manual los torrents en estado 'Pendiente' utilizando el 
+proveedor de Inteligencia Artificial configurado. Implementa bloqueos por límites de cuota 
+diaria (Circuit Breaker en RAM) y control de velocidad (RPM). Cruza la información obtenida 
+con los candidatos de TheTVDB y actualiza la base de datos relacional.
 """
 async def process_pending_torrents(specific_guids: list[str] = None):
+    global _ai_sleep_until, _ram_daily_count, _ram_last_date
+    
+    if not specific_guids and _ai_sleep_until:
+        if datetime.utcnow() < _ai_sleep_until:
+            return
+        else:
+            _ai_sleep_until = None
+            
+    today = datetime.utcnow().date()
+    if _ram_last_date != today:
+        _ram_daily_count = 0
+        _ram_last_date = today
+
+    torrents_to_process = []
+    ai_config_data = None
+    sys_config_data = None
+    delay_between_requests = 0
+    
     with Session(engine) as session:
         config = session.exec(select(AIConfig)).first()
         sys_config = session.exec(select(SystemConfig)).first()
@@ -30,22 +57,22 @@ async def process_pending_torrents(specific_guids: list[str] = None):
         if not config or not config.is_enabled: return 
         if not specific_guids and not config.is_automated: return 
         
+        if not specific_guids and _ram_daily_count >= config.rpd_limit:
+            logger.warning(f"⏸️ Límite diario de IA en RAM alcanzado ({_ram_daily_count}/{config.rpd_limit}). IA a dormir hasta mañana.")
+            _ai_sleep_until = datetime.utcnow() + timedelta(hours=24)
+            return
+        
+        ai_config_data = AIConfig(
+            provider=config.provider, model_name=config.model_name, 
+            api_key=config.api_key, base_url=config.base_url, custom_prompt=config.custom_prompt
+        )
+        sys_config_data = SystemConfig(
+            tvdb_api_key=sys_config.tvdb_api_key, tvdb_is_enabled=sys_config.tvdb_is_enabled
+        ) if sys_config else None
+        
         if specific_guids:
             pending_torrents = session.exec(select(TorrentCache).where(TorrentCache.guid.in_(specific_guids))).all()
-            delay_between_requests = 0
         else:
-            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-            processed_today = session.exec(
-                select(TorrentCache).where(
-                    (TorrentCache.ai_status.in_(["Listo", "Error"])) & 
-                    (TorrentCache.updated_at >= today_start)
-                )
-            ).all()
-            
-            if len(processed_today) >= config.rpd_limit:
-                logger.warning(f"⏸️ Límite diario de IA alcanzado ({config.rpd_limit}/{config.rpd_limit}). En pausa hasta mañana.")
-                return
-
             delay_between_requests = 60.0 / config.rpm_limit if config.rpm_limit > 0 else 0
             
             query = select(TorrentCache).where(TorrentCache.ai_status == "Pendiente")
@@ -56,15 +83,7 @@ async def process_pending_torrents(specific_guids: list[str] = None):
         
         if not pending_torrents: return 
         
-        success_count = 0
-        
-        for i, t in enumerate(pending_torrents):
-            if i > 0 and delay_between_requests > 0:
-                logger.info(f"⏱️ Control RPM: Esperando {delay_between_requests:.1f}s para no saturar la API...")
-                await asyncio.sleep(delay_between_requests)
-                
-            logger.info(f"🧠 Enviando a IA: '{t.enriched_title}' (GUID: {t.guid})")
-            
+        for t in pending_torrents:
             candidates_db = session.exec(
                 select(TVDBCache)
                 .join(TorrentTVDBCandidates)
@@ -75,64 +94,120 @@ async def process_pending_torrents(specific_guids: list[str] = None):
             for c in candidates_db:
                 aliases_list = json.loads(c.aliases) if c.aliases else []
                 candidates_list.append({
-                    "tvdb_id": str(c.tvdb_id),
-                    "name": c.series_name_es,
-                    "aliases": aliases_list,
-                    "year": c.first_aired,
-                    "overview": c.overview_basic
+                    "tvdb_id": str(c.tvdb_id), "name": c.series_name_es,
+                    "aliases": aliases_list, "year": c.first_aired, "overview": c.overview_basic
                 })
             
-            candidates_json_str = json.dumps(candidates_list, ensure_ascii=False) if candidates_list else None
+            torrents_to_process.append({
+                "guid": t.guid, "enriched_title": t.enriched_title,
+                "description": t.description, "candidates_list": candidates_list
+            })
             
-            prompt = _build_single_prompt(
-                title=t.enriched_title, 
-                description=t.description or "Sin descripción", 
-                tvdb_candidates=candidates_json_str,
-                custom_prompt=config.custom_prompt
-            )
+    success_count = 0
+    
+    for i, t_data in enumerate(torrents_to_process):
+        if not specific_guids and _ram_daily_count >= config.rpd_limit:
+            logger.warning(f"⏸️ Límite diario alcanzado en medio del lote ({_ram_daily_count}/{config.rpd_limit}). Abortando el resto.")
+            _ai_sleep_until = datetime.utcnow() + timedelta(hours=24)
+            break
+
+        if i > 0 and delay_between_requests > 0:
+            logger.info(f"⏱️ Control RPM: Esperando {delay_between_requests:.1f}s para no saturar la API...")
+            await asyncio.sleep(delay_between_requests)
             
-            try:
-                raw_result = await call_ai_provider(prompt, config)
-                parsed_data = _clean_and_parse_json(raw_result)
-                
-                translated_title = parsed_data.get("translated_title")
-                chosen_tvdb_id = parsed_data.get("tvdb_id")
-                
-                if translated_title:
-                    t.ai_translated_title = translated_title
-                    t.ai_status = "Listo"
-                
-                if chosen_tvdb_id and str(chosen_tvdb_id).lower() not in ["null", "none", ""]:
-                    t.tvdb_id = str(chosen_tvdb_id)
-                    t.tvdb_status = "Listo"
+        logger.info(f"🧠 Enviando a IA: '{t_data['enriched_title']}' (GUID: {t_data['guid']})")
+        
+        candidates_json_str = json.dumps(t_data["candidates_list"], ensure_ascii=False) if t_data["candidates_list"] else None
+        
+        prompt = _build_single_prompt(
+            title=t_data["enriched_title"], 
+            description=t_data["description"] or "Sin descripción", 
+            tvdb_candidates=candidates_json_str, custom_prompt=ai_config_data.custom_prompt
+        )
+        
+        try:
+            raw_result = await call_ai_provider(prompt, ai_config_data)
+            parsed_data = _clean_and_parse_json(raw_result)
+            
+            translated_title = parsed_data.get("translated_title")
+            chosen_tvdb_id = parsed_data.get("tvdb_id")
+            
+            fetch_tvdb_needed = False
+            tvdb_id_to_fetch = None
+
+            with Session(engine) as session:
+                t = session.exec(select(TorrentCache).where(TorrentCache.guid == t_data["guid"])).first()
+                if t:
+                    if translated_title:
+                        t.ai_translated_title = translated_title
+                        t.ai_status = "Listo"
                     
-                    session.exec(delete(TorrentTVDBCandidates).where(TorrentTVDBCandidates.torrent_guid == t.guid))
-                    logger.info(f"🧹 Limpieza: Relaciones temporales eliminadas para {t.guid} (Match exitoso).")
-                    
-                    if sys_config and sys_config.tvdb_is_enabled and sys_config.tvdb_api_key:
-                        await fetch_full_tvdb_series(t.tvdb_id, session, sys_config)
-                        await fetch_tvdb_episodes(t.tvdb_id, session, sys_config)
+                    if chosen_tvdb_id and str(chosen_tvdb_id).lower() not in ["null", "none", ""]:
+                        t.tvdb_id = str(chosen_tvdb_id)
+                        t.tvdb_status = "Listo"
                         
-                elif candidates_list:
-                    t.tvdb_status = "Revisión Manual"
-                
-                session.commit()
-                success_count += 1
-                logger.info(f"✅ Respuesta IA: '{translated_title}' | TVDB ID: {chosen_tvdb_id}")
-                
-            except Exception as e:
-                logger.error(f"❌ Error procesando el torrent {t.guid} con IA: {e}")
-                t.ai_status = "Error"
-                session.commit()
-                if specific_guids:
-                    raise e
+                        session.exec(delete(TorrentTVDBCandidates).where(TorrentTVDBCandidates.torrent_guid == t.guid))
+                        
+                        if sys_config_data and sys_config_data.tvdb_is_enabled and sys_config_data.tvdb_api_key:
+                            fetch_tvdb_needed = True
+                            tvdb_id_to_fetch = t.tvdb_id
+                            
+                    elif t_data["candidates_list"]:
+                        t.tvdb_status = "Revisión Manual"
                     
-        if not specific_guids and success_count > 0:
-            logger.info(f"✅ Ciclo de IA completado ({success_count}/{len(pending_torrents)}).")
+                    session.commit()
+                    success_count += 1
+                    _ram_daily_count += 1
+                    logger.info(f"✅ Respuesta IA: '{translated_title}' | TVDB ID: {chosen_tvdb_id}")
+
+            if fetch_tvdb_needed and tvdb_id_to_fetch:
+                await fetch_full_tvdb_series(tvdb_id_to_fetch, sys_config_data)
+                await fetch_tvdb_episodes(tvdb_id_to_fetch, sys_config_data)
+
+        except httpx.HTTPStatusError as http_err:
+            status = http_err.response.status_code
+            logger.error(f"❌ Error crítico de la API de IA (HTTP {status}): {http_err.response.text}")
+            
+            if status in [401, 403, 429]:
+                logger.critical("🛑 MOTOR IA DESACTIVADO EN RAM. El proveedor rechazó la conexión. Worker a dormir 24h.")
+                _ai_sleep_until = datetime.utcnow() + timedelta(hours=24)
+                return 
+                
+            with Session(engine) as session:
+                try:
+                    t = session.exec(select(TorrentCache).where(TorrentCache.guid == t_data["guid"])).first()
+                    if t:
+                        t.ai_status = "Error"
+                        session.commit()
+                except Exception:
+                    session.rollback()
+
+        except Exception as e:
+            logger.error(f"❌ Error procesando el torrent {t_data['guid']} con IA: {e}")
+            with Session(engine) as session:
+                try:
+                    t = session.exec(select(TorrentCache).where(TorrentCache.guid == t_data["guid"])).first()
+                    if t:
+                        t.ai_status = "Error"
+                        session.commit()
+                except Exception as inner_e:
+                    session.rollback()
+                    
+            if specific_guids:
+                raise e
+                
+    if not specific_guids and success_count > 0:
+        logger.info(f"✅ Ciclo de IA completado ({success_count}/{len(torrents_to_process)}).")
+
+
+# ==========================================
+# HERRAMIENTAS DE PRUEBA Y DIAGNÓSTICO
+# ==========================================
 
 """
-Realiza una prueba aislada del motor de IA con un torrent específico, simulando 
-los candidatos relacionales y devolviendo el JSON sin guardar cambios.
+Ejecuta una prueba aislada del motor de Inteligencia Artificial sobre un torrent específico. 
+Ensambla el prompt con sus metadatos y candidatos de TheTVDB, lo envía al proveedor y 
+devuelve la respuesta en formato JSON sin persistir ningún cambio en la base de datos.
 """
 async def test_single_torrent_ai(guid: str, title: str, description: str, config: AIConfig) -> str:
     with Session(engine) as session:
@@ -165,8 +240,9 @@ async def test_single_torrent_ai(guid: str, title: str, description: str, config
         raise Exception(f"Fallo en la prueba: {str(e)}")
 
 """
-Ejecuta un ping básico al proveedor de Inteligencia Artificial para verificar 
-la validez de la clave API o la conexión con el servidor local.
+Realiza un ping o petición básica de prueba al proveedor de Inteligencia Artificial.
+Sirve para verificar la conectividad de red con el servidor (local o remoto) y 
+validar que las credenciales (API Key) proporcionadas son correctas.
 """
 async def test_ai_connection(config: AIConfig) -> str:
     prompt = "Petición de testeo: responde únicamente con la frase exacta 'Estoy escuchando.' sin comillas ni texto adicional."
@@ -177,6 +253,15 @@ async def test_ai_connection(config: AIConfig) -> str:
         raise Exception(f"Error de conexión: {str(e)}")
 
 
+# ==========================================
+# FUNCIONES AUXILIARES (PROMPTS Y PARSEO)
+# ==========================================
+
+"""
+Construye la cadena de texto estructurada (prompt) que será evaluada por el modelo de IA.
+Inyecta dinámicamente el título, la descripción y los candidatos de TheTVDB.
+Soporta la sustitución completa de la plantilla si el usuario ha definido un prompt personalizado.
+"""
 def _build_single_prompt(title: str, description: str, tvdb_candidates: str = None, custom_prompt: str = None) -> str:
     if custom_prompt and custom_prompt.strip():
         return custom_prompt.replace("{title}", title).replace("{description}", description).replace("{tvdb_candidates}", tvdb_candidates or "Sin candidatos.")
@@ -238,6 +323,11 @@ Responde ÚNICAMENTE con JSON puro:
 }}"""
     return prompt
 
+"""
+Limpia la respuesta en texto bruto generada por el proveedor de Inteligencia Artificial.
+Filtra cualquier formato adicional (como bloques markdown de código) para aislar 
+y decodificar exclusivamente el objeto JSON válido devuelto por el LLM.
+"""
 def _clean_and_parse_json(raw_text: str) -> dict:
     clean_text = re.sub(r"^```json\s*", "", raw_text.strip(), flags=re.IGNORECASE)
     clean_text = re.sub(r"```$", "", clean_text.strip()).strip()
@@ -252,6 +342,11 @@ def _clean_and_parse_json(raw_text: str) -> dict:
 # COMUNICACIÓN CON APIS EXTERNAS
 # ==========================================
 
+"""
+Cliente HTTP multiproveedor para las peticiones de Inteligencia Artificial.
+Construye la solicitud HTTP (URL, cabeceras, payload) con la estructura específica 
+requerida por cada API soportada (Gemini, OpenAI, Ollama) y extrae el texto resultante.
+"""
 async def call_ai_provider(prompt: str, config: AIConfig) -> str:
     timeout = httpx.Timeout(45.0, connect=10.0)
     

@@ -9,208 +9,188 @@
 {# ========================================== #}
 {# VISTA PRINCIPAL: CONFIGURACIÓN GLOBAL      #}
 {# ========================================== #}
-{# 
-    Panel de administración para los ajustes de seguridad y conexiones de terceros.
+<div class="h-full grid grid-cols-1 xl:grid-cols-2 gap-6 items-start overflow-y-auto custom-scrollbar pb-6">
     
-    Secciones:
-    1. Seguridad Torznab: Gestión de la API Key que se debe introducir en Sonarr.
-    2. TheTVDB: Configuración y testeo del token JWT para la base oficial de series.
-    3. Funciones Avanzadas: Control del comportamiento general de la IA y automatización.
-    4. Conexión del Motor LLM: Credenciales técnicas y selección del proveedor.
-#}
-<div class="h-full flex flex-col space-y-6">
-    
-    <div class="k-panel p-6 max-w-4xl">
-        <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-shield-halved text-yellow-500 mr-2"></i> Seguridad y API (Kitsunarr)</h2>
-        <p class="text-sm text-gray-400 mb-6">Esta clave es necesaria para que Sonarr se pueda conectar a Kitsunarr de forma segura.</p>
+    <div class="flex flex-col space-y-6">
         
-        <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Clave API de Kitsunarr</label>
-        <div class="flex items-center space-x-3">
-            <div class="relative w-full">
-                <i class="fa-solid fa-key absolute left-3 top-3 text-gray-500"></i>
-                <input type="text" id="api_key_display" readonly value="{{ api_key }}" class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none">
-            </div>
-            <button onclick="copyApiKey()" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded border border-gray-600 transition flex items-center whitespace-nowrap shadow-inner">
-                <i class="fa-solid fa-copy mr-2 text-gray-400"></i> Copiar
-            </button>
-            <button onclick="openRestartModal()" class="bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500 hover:text-black border border-yellow-500/50 px-4 py-2.5 rounded transition flex items-center whitespace-nowrap font-bold">
-                <i class="fa-solid fa-rotate mr-2"></i> Regenerar
-            </button>
-        </div>
-    </div>
-
-    <div class="k-panel p-6 max-w-4xl">
-        <div class="flex flex-col md:flex-row gap-8 items-start">
-            <div class="w-full md:w-1/4 flex justify-center md:justify-start shrink-0 pt-2">
-                <a href="https://thetvdb.com/api-information" target="_blank" class="block transition transform hover:scale-105 hover:drop-shadow-[0_0_15px_rgba(46,204,113,0.3)]">
-                    <img src="{{ url_for('static', path='img/tvdb.png') }}" alt="TheTVDB" class="w-36 object-contain">
-                </a>
-            </div>
-            <div class="w-full md:w-3/4 space-y-4">
-                <div>
-                    <h2 class="text-2xl font-normal text-white mb-2 tracking-wide">TheTVDB</h2>
-                    <p class="text-sm text-gray-400">
-                        La información oficial de las series y los pósters es proporcionada por TheTVDB.com. 
-                        <a href="https://thetvdb.com/api-information" target="_blank" class="text-blue-400 hover:text-blue-300 transition">Regístrate como desarrollador</a> para obtener una clave gratuita.
-                    </p>
-                </div>
-                
-                <div class="pt-2 border-b border-gray-800 pb-4 mb-4">
-                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Clave API v4 (UUID)</label>
-                    <div class="flex items-center space-x-3">
-                        <div class="relative w-full">
-                            <i class="fa-solid fa-key absolute left-3 top-3 text-gray-600"></i>
-                            <input type="text" id="tvdb_api_key_input" value="{{ sys_config.tvdb_api_key if sys_config.tvdb_api_key else '' }}" placeholder="Ej: 12345678-abcd..." class="w-full bg-black border border-gray-700 focus:border-green-500 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none transition">
-                        </div>
-                        <button onclick="testTVDB()" id="btn_test_tvdb" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded border border-gray-600 transition flex items-center whitespace-nowrap shadow-inner"><i class="fa-solid fa-satellite-dish mr-2 text-green-500"></i> Testear</button>
-                        <button onclick="saveTVDB()" id="btn_save_tvdb" class="bg-green-600/10 hover:bg-green-600 text-green-500 hover:text-white px-4 py-2.5 rounded border border-green-600/50 transition flex items-center whitespace-nowrap font-bold"><i class="fa-solid fa-floppy-disk mr-2"></i> Guardar</button>
-                    </div>
-                    <div id="tvdb_status_msg" class="mt-3 text-sm hidden p-3 rounded bg-black border border-gray-800 shadow-inner"></div>
-                </div>
-
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                        <div class="font-bold text-gray-200 text-sm mb-1">Búsqueda Automática TVDB</div>
-                        <div class="text-xs text-gray-500">Busca metadatos y IDs en segundo plano (Requiere Clave API guardada).</div>
-                    </div>
-                    <label class="relative inline-flex items-center cursor-pointer shrink-0" title="Activa TheTVDB">
-                        <input type="checkbox" id="tvdb_is_enabled" class="sr-only peer" onchange="saveTVDB()" {% if sys_config.tvdb_is_enabled %}checked{% endif %} {% if not sys_config.tvdb_api_key %}disabled{% endif %}>
-                        <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500 peer-disabled:opacity-30"></div>
-                    </label>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="k-panel p-6 max-w-4xl border-l-4 border-l-purple-500">
-        <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-microchip text-purple-500 mr-2"></i> Funciones Avanzadas de Procesamiento</h2>
-        <p class="text-sm text-gray-400 mb-6">Controla el comportamiento general de la Inteligencia Artificial y la automatización en segundo plano.</p>
-        
-        <div class="space-y-4 bg-black p-4 rounded-lg border border-gray-800 shadow-inner">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <div class="font-bold text-gray-200 text-sm mb-1">Motor General de IA</div>
-                    <div class="text-xs text-gray-500">Habilita el uso de IA para normalizar títulos y cruzar metadatos con TVDB.</div>
-                </div>
-                <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input type="checkbox" id="ai_is_enabled" class="sr-only peer" onchange="handleAIToggleClick(event)" {% if ai_config.is_enabled %}checked{% endif %}>
-                    <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                </label>
-            </div>
+        <div class="k-panel p-6 w-full flex flex-col h-full">
+            <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-shield-halved text-yellow-500 mr-2"></i> Seguridad (Kitsunarr API)</h2>
+            <p class="text-sm text-gray-400 mb-6">Clave de acceso API requerida para enlazar aplicaciones externas como Sonarr o Radarr con Kitsunarr.</p>
             
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-gray-800 pt-4">
-                <div>
-                    <div class="font-bold text-gray-200 text-sm mb-1">Procesamiento Automático</div>
-                    <div class="text-xs text-gray-500">El sistema buscará torrents pendientes cada 60s y los procesará en segundo plano.</div>
-                </div>
-                <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input type="checkbox" id="ai_is_automated" class="sr-only peer" onchange="saveAdvancedSettings()" {% if ai_config.is_automated %}checked{% endif %}>
-                    <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-                </label>
-            </div>
-            <div class="pt-4 mt-6 border-t border-gray-800 flex justify-between items-center">
-                <button onclick="openPromptWarning()" class="bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-2 rounded border border-gray-600 transition text-sm font-bold flex items-center">
-                    <i class="fa-solid fa-code mr-2 text-purple-400"></i> Editar Prompt Custom
+            <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Clave API Torznab</label>
+            <div class="flex items-center space-x-3 mb-2">
+                <input type="text" id="api_key_display" readonly value="{{ api_key }}" class="flex-1 bg-black border border-gray-700 rounded p-3 text-yellow-500 font-mono text-sm outline-none shadow-inner" />
+                <button onclick="copyApiKey()" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-3 rounded border border-gray-600 transition flex items-center" title="Copiar al portapapeles">
+                    <i class="fa-solid fa-copy mr-2"></i> Copiar
                 </button>
-                <button onclick="saveAdvancedSettings()" class="btn-primary glow-yellow px-8 shadow-lg hidden">
-                    <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar Ajustes de IA
+                <button onclick="openRestartModal()" class="btn-primary glow-yellow px-6 py-3 flex items-center" title="Regenerar Nueva Clave">
+                    <i class="fa-solid fa-rotate mr-2"></i> Regenerar
                 </button>
             </div>
         </div>
+
+        <div class="k-panel p-6 w-full flex flex-col h-full">
+            <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-sliders text-yellow-500 mr-2"></i> Comportamiento de la IA</h2>
+            <p class="text-sm text-gray-400 mb-6">Controla el motor LLM para habilitar el procesamiento inteligente de los títulos del tracker.</p>
+            
+            <div class="space-y-4 flex-1">
+                <label for="ai_is_enabled" class="flex items-center justify-between p-4 bg-black border border-gray-800 rounded-lg cursor-pointer hover:border-yellow-500/50 transition">
+                    <div class="pr-4">
+                        <div class="text-white font-bold text-sm">Habilitar Procesamiento IA</div>
+                        <div class="text-xs text-gray-500 mt-1">Habilita las funciones de LLM (IA)</div>
+                    </div>
+                    <div class="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input type="checkbox" id="ai_is_enabled" onclick="handleAIToggleClick(event)" {% if ai_config.is_enabled %}checked{% endif %} class="sr-only peer">
+                        <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                    </div>
+                </label>
+
+                <label for="ai_is_automated" class="flex items-center justify-between p-4 bg-black border border-gray-800 rounded-lg cursor-pointer hover:border-yellow-500/50 transition">
+                    <div class="pr-4">
+                        <div class="text-white font-bold text-sm">Formateo en Segundo Plano (Auto)</div>
+                        <div class="text-xs text-gray-500 mt-1">Kitsunarr enviará a la IA los torrents automáticamente para convertirlos en formato *ARR.</div>
+                    </div>
+                    <div class="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input type="checkbox" id="ai_is_automated" onchange="saveAdvancedSettings()" {% if ai_config.is_automated %}checked{% endif %} class="sr-only peer">
+                        <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                    </div>
+                </label>
+            </div>
+
+            <div class="pt-6 mt-6 border-t border-gray-800 shrink-0">
+                <button onclick="openPromptWarning()" class="w-full bg-[#0a0f18] hover:bg-[#111827] text-gray-300 hover:text-white py-3 px-4 rounded-lg border border-purple-900/30 hover:border-purple-500 transition-all shadow-inner flex items-center justify-center font-bold text-sm group">
+                    <i class="fa-solid fa-code mr-2 text-purple-500 group-hover:text-purple-400 transition-colors"></i> Editar Prompt Custom
+                </button>
+            </div>
+            
+        </div>
+
     </div>
 
-    <div class="k-panel p-6 max-w-4xl border-l-4 border-l-yellow-500">
-        <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-server text-yellow-500 mr-2"></i> Conexión del Motor LLM</h2>
-        <p class="text-sm text-gray-400 mb-6">Configura las credenciales y el modelo del proveedor de inteligencia artificial.</p>
-        
-        <div class="space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Proveedor de IA</label>
-                    <select id="ai_provider" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white outline-none focus:border-yellow-500 transition" onchange="toggleAIFields()">
-                        <option value="gemini" {% if ai_config.provider == 'gemini' %}selected{% endif %}>Google Gemini (Recomendado)</option>
-                        <option value="openai" {% if ai_config.provider == 'openai' %}selected{% endif %}>OpenAI (ChatGPT)</option>
-                        <option value="ollama" {% if ai_config.provider == 'ollama' %}selected{% endif %}>Ollama (Local / Self-hosted)</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Nombre del Modelo</label>
-                    <input type="text" id="ai_model" value="{{ ai_config.model_name }}" placeholder="Ej: gemini-1.5-flash" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
-                </div>
-            </div>
+    <div class="flex flex-col space-y-6">
+
+        <div class="k-panel p-6 w-full relative overflow-hidden group flex flex-col h-full">
             
-            <div id="ai_key_container">
-                <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">API Key</label>
-                <div class="relative">
-                    <i class="fa-solid fa-key absolute left-3 top-3 text-gray-600"></i>
-                    <input type="password" id="ai_key" value="{{ ai_config.api_key }}" placeholder="sk-..." class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
+            <div class="flex flex-col md:flex-row gap-8 items-start relative z-10">
+                <div class="w-full md:w-1/4 flex justify-center md:justify-start shrink-0 pt-2">
+                    <a href="https://thetvdb.com/api-information" target="_blank" class="block transition transform hover:scale-105 hover:drop-shadow-[0_0_15px_rgba(46,204,113,0.3)]">
+                        <img src="https://thetvdb.com/images/logo.png" alt="TheTVDB" class="w-36 object-contain">
+                    </a>
                 </div>
-            </div>
-            
-            <div id="ai_url_container" class="hidden">
-                <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">URL Base (Ollama)</label>
-                <div class="relative">
-                    <i class="fa-solid fa-link absolute left-3 top-3 text-gray-600"></i>
-                    <input type="text" id="ai_url" value="{{ ai_config.base_url }}" placeholder="http://localhost:11434" class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
-                </div>
-            </div>
-            
-            <div id="ai_limits_container" class="border-t border-gray-800 pt-4 mt-2 transition-all duration-300">
-                <h3 class="text-sm font-bold text-gray-300 mb-3"><i class="fa-solid fa-traffic-light mr-2 text-blue-400"></i> Límites de Cuota (API)</h3>
                 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="w-full md:w-3/4 space-y-4">
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Límite RPM</label>
-                        <div class="relative">
-                            <i class="fa-solid fa-gauge-high absolute left-3 top-3 text-gray-600"></i>
-                            <input type="number" id="ai_rpm" value="{{ ai_config.rpm_limit }}" class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
-                        </div>
-                        <p class="text-[10px] text-gray-500 mt-1.5 leading-tight">
-                            <strong class="text-gray-400">R</strong>equests <strong class="text-gray-400">P</strong>er <strong class="text-gray-400">M</strong>inute.<br>
-                            Define la velocidad de escaneo. Kitsunarr calculará pausas automáticas para no exceder este número de peticiones por minuto.
+                        <h2 class="text-2xl font-normal text-white mb-2 tracking-wide">TheTVDB</h2>
+                        <p class="text-sm text-gray-400">
+                            La información oficial de las series y los pósters es proporcionada por TheTVDB.com. 
+                            <a href="https://thetvdb.com/api-information" target="_blank" class="text-blue-400 hover:text-blue-300 transition">Regístrate como desarrollador</a> para obtener una clave gratuita.
                         </p>
                     </div>
-                    <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Límite TPM</label>
-                        <div class="relative">
-                            <i class="fa-solid fa-coins absolute left-3 top-3 text-gray-600"></i>
-                            <input type="number" id="ai_tpm" value="{{ ai_config.tpm_limit }}" class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
+                    
+                    <div class="pt-2 border-b border-gray-800 pb-4 mb-4">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Clave API v4 (UUID)</label>
+                        <div class="flex items-center space-x-3">
+                            <div class="relative w-full">
+                                <i class="fa-solid fa-key absolute left-3 top-3 text-gray-600"></i>
+                                <input type="text" id="tvdb_api_key_input" value="{{ sys_config.tvdb_api_key if sys_config.tvdb_api_key else '' }}" placeholder="Ej: 12345678-abcd..." class="w-full bg-black border border-gray-700 focus:border-green-500 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none transition">
+                            </div>
+                            <button onclick="testTVDB()" id="btn_test_tvdb" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded border border-gray-600 transition flex items-center whitespace-nowrap shadow-inner"><i class="fa-solid fa-satellite-dish mr-2 text-green-500"></i> Testear</button>
+                            <button onclick="saveTVDB()" id="btn_save_tvdb" class="bg-green-600/10 hover:bg-green-600 text-green-500 hover:text-white px-4 py-2.5 rounded border border-green-600/50 transition flex items-center whitespace-nowrap font-bold"><i class="fa-solid fa-floppy-disk mr-2"></i> Guardar</button>
                         </div>
-                        <p class="text-[10px] text-gray-500 mt-1.5 leading-tight">
-                            <strong class="text-gray-400">T</strong>okens <strong class="text-gray-400">P</strong>er <strong class="text-gray-400">M</strong>inute.<br>
-                            Volumen máximo de "palabras" que la API procesa por minuto. (Normalmente 250k a 1 Millón en planes gratuitos).
-                        </p>
+                        <div id="tvdb_status_msg" class="mt-3 text-sm hidden p-3 rounded bg-black border border-gray-800 shadow-inner"></div>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <div class="font-bold text-gray-200 text-sm mb-1">Búsqueda Automática TVDB</div>
+                            <div class="text-xs text-gray-500">Busca metadatos y IDs en segundo plano (Requiere Clave API guardada).</div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer shrink-0" title="Activa TheTVDB">
+                            <input type="checkbox" id="tvdb_is_enabled" class="sr-only peer" onchange="saveTVDB()" {% if sys_config.tvdb_is_enabled %}checked{% endif %} {% if not sys_config.tvdb_api_key %}disabled{% endif %}>
+                            <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500 peer-disabled:opacity-30"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="k-panel p-6 w-full flex flex-col h-full">
+            <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-microchip text-yellow-500 mr-2"></i> Conexión del Motor LLM</h2>
+            <p class="text-sm text-gray-400 mb-6">Configura tu proveedor de Inteligencia Artificial y establece sus límites.</p>
+            
+            <div class="space-y-4 mb-6 flex-1">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Proveedor</label>
+                        <select id="ai_provider" onchange="toggleAIFields()" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition">
+                            <option value="gemini" {% if ai_config.provider == 'gemini' %}selected{% endif %}>Google Gemini</option>
+                            <option value="openai" {% if ai_config.provider == 'openai' %}selected{% endif %}>OpenAI</option>
+                            <option value="ollama" {% if ai_config.provider == 'ollama' %}selected{% endif %}>Ollama (Local)</option>
+                        </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Límite RPD</label>
-                        <div class="relative">
-                            <i class="fa-solid fa-calendar-day absolute left-3 top-3 text-gray-600"></i>
-                            <input type="number" id="ai_rpd" value="{{ ai_config.rpd_limit }}" class="w-full bg-black border border-gray-700 rounded p-2.5 pl-10 text-white font-mono text-sm outline-none focus:border-yellow-500 transition">
-                        </div>
-                        <p class="text-[10px] text-gray-500 mt-1.5 leading-tight">
-                            <strong class="text-gray-400">R</strong>equests <strong class="text-gray-400">P</strong>er <strong class="text-gray-400">D</strong>ay.<br>
-                            Tope diario. El trabajador automático se pausará hasta el día siguiente si alcanza este número de torrents procesados.
-                        </p>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Modelo Específico</label>
+                        <input type="text" id="ai_model" value="{{ ai_config.model_name }}" placeholder="ej. gemini-1.5-flash" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner" />
                     </div>
                 </div>
 
-                <div class="mt-4 p-3 bg-blue-900/10 border border-blue-900/30 rounded-lg flex gap-3 items-start shadow-inner">
-                    <i class="fa-solid fa-circle-info text-blue-400 mt-0.5"></i>
-                    <p class="text-xs text-gray-400 leading-relaxed">
-                        Estos límites protegen tu cuenta de bloqueos temporales (Errores 429) durante el procesamiento en segundo plano.<br>
-                        <span class="block mt-1"><strong class="text-yellow-500 font-bold">💡 Consejo:</strong> Si utilizas esta misma API Key para otras aplicaciones o bots, es recomendable configurar aquí valores <strong>menores al máximo permitido</strong> por tu proveedor. Así reservarás cupo y Kitsunarr no agotará tus recursos diarios.</span>
+                <div id="ai_key_container" class="{% if ai_config.provider == 'ollama' %}hidden{% endif %}">
+                    <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">API Key del Proveedor</label>
+                    <input type="password" id="ai_key" value="{{ ai_config.api_key }}" placeholder="sk-..." class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner" />
+                </div>
+
+                <div id="ai_url_container" class="{% if ai_config.provider != 'ollama' %}hidden{% endif %}">
+                    <label class="block text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">URL Base (Local)</label>
+                    <input type="text" id="ai_url" value="{{ ai_config.base_url }}" placeholder="http://localhost:11434" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner" />
+                </div>
+            </div>
+
+            <div id="ai_limits_container" class="{% if ai_config.provider == 'ollama' %}hidden{% endif %} mt-2 pt-6 border-t border-gray-800">
+                <h3 class="text-sm font-bold text-gray-300 mb-4"><i class="fa-solid fa-scale-unbalanced text-yellow-500 mr-2"></i> Límites de Peticiones (Rate Limits)</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Req. por Minuto</label>
+                        <div class="relative">
+                            <input type="number" id="ai_rpm" value="{{ ai_config.rpm_limit }}" class="w-full bg-black border border-gray-700 rounded p-2 pr-10 text-white text-sm outline-none focus:border-yellow-500 transition" />
+                            <span class="absolute right-3 top-2.5 text-xs text-gray-500 font-bold">RPM</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Tokens por Minuto</label>
+                        <div class="relative">
+                            <input type="number" id="ai_tpm" value="{{ ai_config.tpm_limit }}" class="w-full bg-black border border-gray-700 rounded p-2 pr-10 text-white text-sm outline-none focus:border-yellow-500 transition" />
+                            <span class="absolute right-3 top-2.5 text-xs text-gray-500 font-bold">TPM</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Req. por Día</label>
+                        <div class="relative">
+                            <input type="number" id="ai_rpd" value="{{ ai_config.rpd_limit }}" class="w-full bg-black border border-gray-700 rounded p-2 pr-10 text-white text-sm outline-none focus:border-yellow-500 transition" />
+                            <span class="absolute right-3 top-2.5 text-xs text-gray-500 font-bold">RPD</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-yellow-900/20 border border-yellow-700/50 rounded p-3">
+                    <p class="text-[11px] text-gray-400 leading-relaxed text-justify">
+                        Estas variables previenen los bloqueos temporales por exceso de peticiones<br>
+                        <span class="block mt-1"><strong class="text-yellow-500 font-bold">💡 Consejo:</strong> Si utilizas esta misma API Key para otras aplicaciones, configura aquí valores <strong>menores al máximo permitido</strong> por tu plan gratuito para reservar cupo de recursos.</span>
                     </p>
                 </div>
             </div>
 
-            <div class="pt-4 flex justify-end border-t border-gray-800">
-                <button onclick="saveAIConfig()" class="btn-primary glow-yellow px-8 shadow-lg">
-                    <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar Conexión LLM
+            <div class="pt-6 mt-6 flex justify-between border-t border-gray-800 shrink-0">
+                <button onclick="resetAIQuota()" class="bg-gray-800 hover:bg-red-900 text-gray-300 hover:text-white px-6 py-2.5 rounded transition flex items-center font-bold">
+                    <i class="fa-solid fa-rotate-left mr-2"></i> Resetear Cuota
+                </button>
+                <button onclick="saveAIConfig()" class="btn-primary glow-yellow px-6 py-2.5 shadow-lg flex items-center">
+                    <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar LLM
                 </button>
             </div>
+            
         </div>
     </div>
-
 </div>
 {% endblock %}
 
@@ -220,10 +200,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    // Inicializar el formulario (mostrar/ocultar URL de Ollama según el select)
-    document.addEventListener("DOMContentLoaded", () => {
-        if(typeof toggleAIFields === 'function') toggleAIFields();
-    });
-</script>
+<script src="{{ url_for('static', path='js/views/config.js') }}"></script>
 {% endblock %}

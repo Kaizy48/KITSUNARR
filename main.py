@@ -3,36 +3,35 @@
 # ==========================================
 import os
 import time
-import httpx
 import secrets
 import json
 import asyncio
+from datetime import datetime
 from contextlib import asynccontextmanager
+
+import httpx
+import uvicorn
 from fastapi import FastAPI, Request, Response, BackgroundTasks, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.encoders import jsonable_encoder
-import uvicorn
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from dotenv import load_dotenv
-from sqlmodel import Session, select , delete
+from sqlmodel import Session, select, delete
 from pydantic import BaseModel
 
-from core.database import engine, create_db_and_tables
-from core.models.torrent import TVDBCache
-from core.tracker_login import attempt_unionfansub_login
-from core.tracker_login import auto_renew_cookie
-from services.adapters.union_scraper import search_unionfansub_html, test_unionfansub_connection
-from services.adapters.tvdb_scraper import process_pending_tvdb
-from services.adapters.tvdb_scraper import clean_for_tvdb, _tvdb_search
-from services.export import export_torrents_only, export_tvdb_only, export_full_bundle, import_relational_data
-from core.models.indexer import IndexerConfig
-from core.models.torrent import TorrentCache
-from core.models.torrent import TorrentTVDBCandidates
-from core.models.system import SystemConfig, AIConfig
-from core.logger import logger, LOG_FILE
+import core.ai_parser as ai_parser
 from core.ai_parser import process_pending_torrents, test_single_torrent_ai, test_ai_connection
+from core.database import engine, create_db_and_tables
+from core.logger import logger, LOG_FILE
+from core.models.indexer import IndexerConfig
+from core.models.system import SystemConfig, AIConfig
+from core.models.torrent import TorrentCache, TorrentTVDBCandidates, TVDBCache, TVDBEpisodes
+from core.tracker_login import attempt_unionfansub_login, auto_renew_cookie
+from services.adapters.union_scraper import search_unionfansub_html, test_unionfansub_connection
+from services.adapters.tvdb_scraper import process_pending_tvdb, clean_for_tvdb, _tvdb_search, fetch_tvdb_episodes, fetch_full_tvdb_series
+from services.export import export_torrents_only, export_tvdb_only, export_full_bundle, import_relational_data
 
 load_dotenv()
 
@@ -103,6 +102,7 @@ async def lifespan(app: FastAPI):
 # ==========================================
 # INICIALIZACIÓN DE LA APP FASTAPI
 # ==========================================
+
 app = FastAPI(title="Kitsunarr", lifespan=lifespan)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -119,6 +119,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"success": False, "error": f"Error interno: {str(exc)}"}
     )
+
 
 # ==========================================
 # RUTAS DE VISTAS (RENDERIZADO HTML - UI)
@@ -174,13 +175,27 @@ async def ui_events_view(request: Request):
     return templates.TemplateResponse(request=request, name="views/events.html", context={})
 
 """
-Renderiza la vista de Búsqueda Interactiva.
+Renderiza la vista de Búsqueda Interactiva en el Tracker.
 """
 @app.get("/search")
 async def ui_interactive_search_view(request: Request):
     with Session(engine) as session:
         ai_config = session.exec(select(AIConfig)).first()
     return templates.TemplateResponse(request=request, name="views/search.html", context={"ai_config": ai_config})
+
+"""
+Renderiza la vista de la Caché Maestra de TheTVDB.
+"""
+@app.get("/tvdb_cache")
+async def ui_tvdb_cache_view(request: Request):
+    return templates.TemplateResponse(request=request, name="views/tvdb_cache.html", context={})
+
+"""
+Renderiza la vista de Búsqueda Interactiva en TheTVDB.
+"""
+@app.get("/tvdb_search")
+async def ui_tvdb_search_view(request: Request):
+    return templates.TemplateResponse(request=request, name="views/tvdb_search.html", context={})
 
 
 # ==========================================
@@ -250,17 +265,27 @@ async def proxy_download_torrent(guid: str):
 
     logger.info(f"📥 Sonarr solicita descarga. Original: {guid} | ID Real: {clean_guid}")
     url = f"https://torrent.unionfansub.com/download.php?torrent={clean_guid}"
-    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr; +https://github.com/Kaizy48/KITSUNARR)"
     
+    # Cabeceras extremas de simulación de navegador para evitar el 403 Forbidden
     headers = {
-        "User-Agent": user_agent, "Cookie": cookie,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Referer": f"https://torrent.unionfansub.com/details.php?id={clean_guid}&hit=1"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr; +https://github.com/Kaizy48/KITSUNARR)",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Host": "torrent.unionfansub.com",
+        "Referer": f"https://torrent.unionfansub.com/details.php?id={clean_guid}&hit=1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "Cookie": cookie
     }
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.get(url, headers=headers)
+        async with httpx.AsyncClient(follow_redirects=True, headers=headers) as client:
+            resp = await client.get(url)
             resp.raise_for_status()
             
             content_type = resp.headers.get("Content-Type", "")
@@ -373,12 +398,16 @@ Helper asíncrono para descargar la ficha maestra y los episodios en segundo pla
 cuando el usuario asigna un ID de TheTVDB manualmente.
 """
 async def background_fetch_tvdb(tvdb_id: str):
+    config_copy = None
     with Session(engine) as session:
         config = session.exec(select(SystemConfig)).first()
         if config and config.tvdb_api_key:
-            logger.info(f"⚙️ [Background] Construyendo Ficha Maestra y Episodios para ID manual: {tvdb_id}")
-            await fetch_full_tvdb_series(tvdb_id, session, config)
-            await fetch_tvdb_episodes(tvdb_id, session, config)
+            config_copy = SystemConfig(tvdb_api_key=config.tvdb_api_key)
+            
+    if config_copy:
+        logger.info(f"⚙️ [Background] Construyendo Ficha Maestra y Episodios para ID manual: {tvdb_id}")
+        await fetch_full_tvdb_series(tvdb_id, config_copy)
+        await fetch_tvdb_episodes(tvdb_id, config_copy)
 
 """
 Recibe las modificaciones hechas por el usuario desde el Modal de Edición Manual.
@@ -458,7 +487,7 @@ async def import_cache_db(request: Request, background_tasks: BackgroundTasks, f
         base_url = str(request.base_url).rstrip("/")
         
         with Session(engine) as session:
-            result = import_relational_data(data, session, base_url)
+            result = await import_relational_data(data, base_url)
             
         missing_ids = result.get("missing_tvdb_ids", [])
         for tvdb_id in missing_ids:
@@ -476,23 +505,10 @@ async def import_cache_db(request: Request, background_tasks: BackgroundTasks, f
         logger.error(f"❌ Error importando caché: {e}")
         return {"success": False, "error": str(e)}
 
+
 # ==========================================
-# RUTAS: BIBLIOTECA TVDB (Caché Maestra y Búsqueda)
+# RUTAS: BIBLIOTECA Y BÚSQUEDA THETVDB
 # ==========================================
-
-from core.models.torrent import TVDBEpisodes
-from services.adapters.tvdb_scraper import fetch_tvdb_episodes, fetch_full_tvdb_series
-
-@app.get("/tvdb_cache")
-async def ui_tvdb_cache_view(request: Request):
-    return templates.TemplateResponse(request=request, name="views/tvdb_cache.html", context={})
-
-"""
-Renderiza la vista de Búsqueda Interactiva en TheTVDB.
-"""
-@app.get("/tvdb_search")
-async def ui_tvdb_search_view(request: Request):
-    return templates.TemplateResponse(request=request, name="views/tvdb_search.html", context={})
 
 """
 Obtiene TODAS las fichas de TVDB guardadas, pero SOLO devuelve al frontend
@@ -505,7 +521,7 @@ async def get_tvdb_cache_list():
         return {"tvdb_cache": jsonable_encoder(tvdb_items)}
 
 """
-Devuelve todos los episodios asociados a una serie específica.
+Devuelve todos los episodios asociados a una serie específica de la caché local.
 """
 @app.get("/api/ui/tvdb_cache/{tvdb_id}/episodes")
 async def get_tvdb_episodes(tvdb_id: str):
@@ -513,6 +529,9 @@ async def get_tvdb_episodes(tvdb_id: str):
         eps = session.exec(select(TVDBEpisodes).where(TVDBEpisodes.tvdb_id == tvdb_id).order_by(TVDBEpisodes.season_number, TVDBEpisodes.episode_number)).all()
         return {"success": True, "episodes": jsonable_encoder(eps)}
 
+"""
+Elimina permanentemente una Ficha Maestra de TheTVDB y sus episodios asociados de la base local.
+"""
 @app.delete("/api/ui/tvdb_cache/{tvdb_id}")
 async def delete_tvdb_cache_entry(tvdb_id: str):
     with Session(engine) as session:
@@ -524,8 +543,8 @@ async def delete_tvdb_cache_entry(tvdb_id: str):
         return {"success": False}
 
 """
-NUEVO: Devuelve una lista de TODAS las series conocidas (Maestras y Candidatos)
-para alimentar el buscador "Omnibox" del modal de edición de la interfaz.
+Devuelve una lista de TODAS las series conocidas (Maestras y Candidatos)
+para alimentar el buscador 'Omnibox' del modal de edición de la interfaz.
 """
 @app.get("/api/ui/tvdb/local_candidates")
 async def get_local_candidates():
@@ -549,7 +568,7 @@ async def get_torrent_specific_candidates(guid: str):
         return {"success": True, "results": jsonable_encoder(results)}
 
 """
-NUEVO: Realiza una búsqueda viva en TheTVDB (Búsqueda Interactiva de TVDB).
+Realiza una búsqueda viva en la API externa de TheTVDB (Búsqueda Interactiva).
 """
 @app.get("/api/ui/tvdb/remote_search")
 async def remote_tvdb_search(q: str):
@@ -565,19 +584,26 @@ async def remote_tvdb_search(q: str):
             return {"success": False, "error": str(e)}
 
 """
-NUEVO: Convierte un candidato encontrado en el buscador remoto en una Ficha Maestra
-permanente, descargando sus temporadas y episodios.
+Convierte un candidato encontrado en el buscador remoto en una Ficha Maestra
+permanente, descargando sus temporadas y episodios y actualizando la BD.
 """
 @app.post("/api/ui/tvdb/fetch_master/{tvdb_id}")
 async def force_fetch_master(tvdb_id: str):
+    config_copy = None
     with Session(engine) as session:
         config = session.exec(select(SystemConfig)).first()
-        try:
-            await fetch_full_tvdb_series(tvdb_id, session, config)
-            await fetch_tvdb_episodes(tvdb_id, session, config)
-            return {"success": True}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        if config and config.tvdb_api_key:
+            config_copy = SystemConfig(tvdb_api_key=config.tvdb_api_key)
+            
+    if not config_copy:
+        return {"success": False, "error": "TVDB no configurado."}
+        
+    try:
+        await fetch_full_tvdb_series(tvdb_id, config_copy)
+        await fetch_tvdb_episodes(tvdb_id, config_copy)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ==========================================
@@ -639,7 +665,7 @@ class AIConfigForm(BaseModel):
 
 """
 Recibe los detalles de conexión técnicos del LLM (API key, URL, proveedor, límites)
-y los almacena de forma persistente.
+y los almacena de forma persistente. Limpia la RAM para reiniciar contadores.
 """
 @app.post("/api/ui/ai/config")
 async def save_ai_config(data: AIConfigForm):
@@ -660,8 +686,27 @@ async def save_ai_config(data: AIConfigForm):
         session.add(conf) 
         session.commit()
         
-        logger.info("⚙️ Ajustes técnicos y de cuota de IA guardados exitosamente.")
+        # --- EL DESPERTADOR EN RAM ---
+        ai_parser._ai_sleep_until = None
+        ai_parser._ram_daily_count = 0
+        ai_parser._ram_last_date = datetime.utcnow().date()
+        
+        logger.info("⚙️ Ajustes técnicos guardados. Worker despertado y contadores a 0.")
         return {"success": True}
+
+"""
+NUEVO: Botón maestro para poner a 0 el contador diario y 
+despertar a la IA si estaba bloqueada por un error del proveedor.
+"""
+@app.post("/api/ui/ai/reset_quota")
+async def api_reset_ai_quota():
+    # Limpiamos la RAM de ai_parser
+    ai_parser._ai_sleep_until = None
+    ai_parser._ram_daily_count = 0
+    ai_parser._ram_last_date = datetime.utcnow().date()
+    
+    logger.info("🔄 Cuota de IA y bloqueos reiniciados manualmente en RAM.")
+    return {"success": True}
 
 class ForceSpecificAIRequest(BaseModel):
     guids: list[str]
@@ -678,14 +723,6 @@ async def force_ai_process_specific(data: ForceSpecificAIRequest):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-class TestAIRequest(BaseModel):
-    guid: str
-    config: AIConfigForm
-
-"""
-Fuerza una nueva búsqueda de candidatos en TheTVDB para un torrent específico, 
-reiniciando su estado por si falló anteriormente. (Adaptado a Arquitectura Relacional)
-"""
 """
 Fuerza una nueva búsqueda de candidatos en TheTVDB para un torrent específico, 
 reiniciando su estado por si falló anteriormente. (Adaptado a Arquitectura Relacional)
@@ -743,6 +780,10 @@ async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
                     return {"success": False, "error": str(e)}
                     
         return {"success": True}
+
+class TestAIRequest(BaseModel):
+    guid: str
+    config: AIConfigForm
 
 """
 Realiza una prueba aislada procesando un único torrent de la caché con los parámetros
@@ -1020,6 +1061,10 @@ async def regenerate_apikey():
         session.commit()
         return {"success": True, "new_key": new_key}
 
+"""
+Función de detención en crudo. Duerme un segundo y medio para 
+dar tiempo a devolver la respuesta HTTP antes de forzar la salida.
+"""
 def force_restart():
     time.sleep(1.5)
     os._exit(0)

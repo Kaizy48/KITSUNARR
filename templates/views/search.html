@@ -47,6 +47,10 @@
 </div>
 {% endblock %}
 
+{% block extra_js %}
+<script src="{{ url_for('static', path='js/views/search.js') }}"></script>
+{% endblock %}
+
 {% block modals %}
     {% include 'components/modal_info.html' %}
     {% include 'components/modal_ai.html' %}

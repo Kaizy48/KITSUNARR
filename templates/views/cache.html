@@ -111,11 +111,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    document.addEventListener("DOMContentLoaded", () => {
-        if(typeof loadCacheGrid === 'function') {
-            loadCacheGrid();
-        }
-    });
-</script>
+<script src="{{ url_for('static', path='js/views/cache.js') }}"></script>
 {% endblock %}

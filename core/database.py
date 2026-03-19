@@ -1,9 +1,13 @@
 # ==========================================
-# CONFIGURACIÓN DE BASE DE DATOS Y PERSISTENCIA
+# IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
 import os
-from sqlmodel import SQLModel, create_engine, Session
 from dotenv import load_dotenv
+from sqlmodel import SQLModel, create_engine, Session
+
+# ==========================================
+# CONFIGURACIÓN DE BASE DE DATOS Y PERSISTENCIA
+# ==========================================
 
 load_dotenv()
 
@@ -19,7 +23,7 @@ engine = create_engine(
     echo=False,
     connect_args={
         "check_same_thread": False,
-        "timeout": 20.0  # <--- Este es el Mutex
+        "timeout": 20.0
     }
 )
 

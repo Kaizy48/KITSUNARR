@@ -99,7 +99,9 @@
 
     {% block modals %}{% endblock %}
 
-    <script src="{{ url_for('static', path='js/app.js') }}"></script>
+    <script src="{{ url_for('static', path='js/core/globals.js') }}"></script>
+    <script src="{{ url_for('static', path='js/core/utils.js') }}"></script>
+    <script src="{{ url_for('static', path='js/core/modals.js') }}"></script>
     
     {% block extra_js %}{% endblock %}
   </body>

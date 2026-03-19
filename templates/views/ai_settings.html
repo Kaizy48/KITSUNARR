@@ -126,9 +126,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    document.addEventListener("DOMContentLoaded", () => {
-        if(typeof populateAITestDropdown === 'function') populateAITestDropdown();
-    });
-</script>
+<script src="{{ url_for('static', path='js/views/ai_settings.js') }}"></script>
 {% endblock %}

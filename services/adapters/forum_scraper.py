@@ -1,10 +1,17 @@
 # ==========================================
+# IMPORTS Y CONFIGURACIÓN INICIAL
+# ==========================================
+import re
+
+import httpx
+from bs4 import BeautifulSoup
+
+from core.logger import logger
+
+
+# ==========================================
 # SCRAPER DEL FORO (EXTRACCIÓN DE IMÁGENES)
 # ==========================================
-import httpx
-import re
-from bs4 import BeautifulSoup
-from core.logger import logger
 
 """
 Visita el tema específico (hilo) del foro asociado a un release y extrae 

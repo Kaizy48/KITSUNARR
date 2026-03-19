@@ -1,8 +1,17 @@
+# ==========================================
+# IMPORTS Y CONFIGURACIÓN INICIAL
+# ==========================================
 import httpx
 from sqlmodel import Session, select
+
 from core.database import engine
-from core.models.indexer import IndexerConfig
 from core.logger import logger
+from core.models.indexer import IndexerConfig
+
+
+# ==========================================
+# AUTENTICACIÓN Y GESTIÓN DE SESIONES
+# ==========================================
 
 """
 Realiza un inicio de sesión en dos pasos simulando exactamente el formulario 
