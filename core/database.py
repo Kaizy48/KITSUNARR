@@ -47,9 +47,6 @@ Generador de sesiones de base de datos.
 Proporciona una sesión activa para interactuar con la base de datos y se asegura 
 de cerrarla automáticamente cuando la operación termina. Se utiliza principalmente 
 para la inyección de dependencias en las rutas web de FastAPI.
-
-Retorna:
-    Session: Objeto de sesión de SQLModel conectado al motor de base de datos local.
 """
 def get_session():
     with Session(engine) as session:

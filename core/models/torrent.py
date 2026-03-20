@@ -29,7 +29,6 @@ class TorrentTVDBCandidates(SQLModel, table=True):
 # ==========================================
 """
 Almacena los episodios individuales de una serie de TVDB.
-Esencial para el futuro renombrado preciso de archivos mediante el Worker Regex.
 """
 class TVDBEpisodes(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -40,7 +39,6 @@ class TVDBEpisodes(SQLModel, table=True):
     name_en: Optional[str] = None
     air_date: Optional[str] = None
     
-    # Relación inversa con la Ficha Maestra
     series: Optional["TVDBCache"] = Relationship(back_populates="episodes")
 
 

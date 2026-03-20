@@ -17,13 +17,6 @@ from core.logger import logger
 Visita el tema específico (hilo) del foro asociado a un release y extrae 
 la URL de la portada original de alta calidad contenida en el diseño de la página.
 Simula un navegador completo identificandose como Kitsunarr.
-
-Parámetros:
-    forum_url (str): URL directa al hilo del foro.
-    cookie_string (str): Cookie de sesión con permisos de acceso al foro.
-
-Retorna:
-    str | None: URL de la imagen extraída o None si ocurre un error.
 """
 async def fetch_poster_url(forum_url: str, cookie_string: str) -> str | None:
     if forum_url.startswith("//"):

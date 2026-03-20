@@ -25,7 +25,6 @@ def safe_parse_datetime(date_str: str | None):
     if not date_str:
         return None
     try:
-        # Reemplazamos la Z si viene de Javascript para compatibilidad ISO
         return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
     except ValueError:
         return None
@@ -46,8 +45,6 @@ Reconstruye los campos dinámicos y parsea los tipos de dato correctos
 def rehydrate_torrent_data(t_data: dict, base_url: str) -> dict:
     guid = t_data.get("guid", "")
     t_data["download_url"] = f"{base_url}/api/download/{guid}_base"
-    
-    # Conversión obligatoria de Strings a objetos Datetime
     t_data["added_at"] = safe_parse_datetime(t_data.get("added_at")) or datetime.utcnow()
     t_data["updated_at"] = safe_parse_datetime(t_data.get("updated_at")) or datetime.utcnow()
     t_data["freeleech_until"] = safe_parse_datetime(t_data.get("freeleech_until"))

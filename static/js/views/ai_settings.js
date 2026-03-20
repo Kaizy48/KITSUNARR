@@ -5,26 +5,6 @@
 let labCacheData = [];
 
 /**
- * Alterna dinámicamente la visualización del campo "Clave API" vs "URL Base"
- * en el formulario de la herramienta de Ping.
- */
-function togglePingFields() {
-    const provider = document.getElementById('ping_provider');
-    if(!provider) return;
-    
-    const keyContainer = document.getElementById('ping_key_container');
-    const urlContainer = document.getElementById('ping_url_container');
-    
-    if (provider.value === 'ollama') {
-        keyContainer.classList.add('hidden');
-        urlContainer.classList.remove('hidden');
-    } else {
-        keyContainer.classList.remove('hidden');
-        urlContainer.classList.add('hidden');
-    }
-}
-
-/**
  * Ejecuta un ping de prueba contra el proveedor de Inteligencia Artificial 
  * mostrando los resultados en líneas separadas para mejorar la lectura.
  */
@@ -71,8 +51,8 @@ async function runAIPing() {
 }
 
 /**
- * Consulta la API interna para obtener los torrents cacheados y los carga 
- * en el menú desplegable del Laboratorio de IA para realizar pruebas.
+ * Consulta la API interna para obtener los torrents cacheados y los carga.
+ * Muestra TODOS los torrents, pero ordena priorizando Pendientes y Errores.
  */
 async function populateAITestDropdown() {
     if(!document.getElementById('test_ai_dropdown_list')) return;
@@ -80,54 +60,75 @@ async function populateAITestDropdown() {
         const res = await fetch('/api/ui/cache');
         const data = await res.json();
         labCacheData = data.torrents;
+        
+        labCacheData.sort((a, b) => {
+            const weights = { 'Pendiente': 3, 'Error': 2, 'Manual': 1, 'Listo': 0 };
+            const wA = weights[a.ai_status] || 0;
+            const wB = weights[b.ai_status] || 0;
+            
+            if (wB !== wA) return wB - wA;
+            return parseInt(b.guid) - parseInt(a.guid);
+        });
+        
         renderAITestDropdown(labCacheData);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("Error cargando caché para IA:", e); }
 }
 
 /**
- * Renderiza el DOM del menú desplegable del Laboratorio IA con los datos proporcionados.
+ * Renderiza el DOM del menú desplegable limitando visualmente a 50 resultados
+ * para no saturar el DOM del navegador.
  */
 function renderAITestDropdown(torrents) {
     const list = document.getElementById('test_ai_dropdown_list');
     if(!list) return;
     list.innerHTML = '';
+    
     torrents.slice(0, 50).forEach(t => {
         const div = document.createElement('div');
-        div.className = "p-3 border-b border-gray-800 hover:bg-gray-800 cursor-pointer text-sm text-gray-300 flex justify-between items-center transition";
-        let statusBadge = '';
-        if(t.ai_status === 'Listo') statusBadge = '<span class="text-xs bg-green-900/50 text-green-400 px-2 py-0.5 rounded border border-green-700">Listo</span>';
-        else if(t.ai_status === 'Pendiente') statusBadge = '<span class="text-xs bg-yellow-900/50 text-yellow-400 px-2 py-0.5 rounded border border-yellow-700">Pend</span>';
+        div.className = "p-3 border-b border-gray-800 hover:bg-gray-800 cursor-pointer text-sm text-gray-300 flex justify-between items-center transition w-full";
         
-        div.innerHTML = `<span class="truncate pr-4">${t.enriched_title}</span> ${statusBadge}`;
+        let statusBadge = '';
+        if(t.ai_status === 'Listo') {
+            statusBadge = '<span class="text-xs bg-green-900/50 text-green-400 px-2 py-0.5 rounded border border-green-700">Listo</span>';
+        } else if(t.ai_status === 'Pendiente') {
+            statusBadge = '<span class="text-xs bg-yellow-900/50 text-yellow-400 px-2 py-0.5 rounded border border-yellow-700">Pendiente</span>';
+        } else if(t.ai_status === 'Error') {
+            statusBadge = '<span class="text-xs bg-red-900/50 text-red-400 px-2 py-0.5 rounded border border-red-700">Error</span>';
+        } else if(t.ai_status === 'Manual') {
+            statusBadge = '<span class="text-xs bg-blue-900/50 text-blue-400 px-2 py-0.5 rounded border border-blue-700">Manual</span>';
+        }
+        
+        div.innerHTML = `<span class="truncate flex-1 min-w-0 pr-4">${t.enriched_title}</span> <div class="shrink-0">${statusBadge}</div>`;
         div.onclick = () => selectAITestTorrent(t);
         list.appendChild(div);
     });
 }
 
 /**
- * Filtra los elementos del menú desplegable en tiempo real según el texto 
- * introducido por el usuario en el input de búsqueda del Laboratorio IA.
+ * Filtra los elementos de TODA la base de datos (labCacheData) en tiempo real
+ * según el texto introducido en el input, y pasa los resultados al renderizador.
  */
 function filterAITestDropdown() {
     const q = document.getElementById('test_ai_search_input').value.toLowerCase();
-    const filtered = labCacheData.filter(t => t.enriched_title.toLowerCase().includes(q) || t.guid.includes(q));
+    
+    if (!q) {
+        renderAITestDropdown(labCacheData);
+        return;
+    }
+    
+
+    const filtered = labCacheData.filter(t => 
+        (t.enriched_title && t.enriched_title.toLowerCase().includes(q)) || 
+        (t.guid && t.guid.includes(q))
+    );
     renderAITestDropdown(filtered);
 }
 
-/**
- * Muestra visualmente la lista de resultados del buscador del Laboratorio IA.
- */
 function showAITestDropdown() { document.getElementById('test_ai_dropdown_list').classList.remove('hidden'); }
-
-/**
- * Oculta la lista del buscador con un ligero retraso para permitir 
- * que el evento de clic en un elemento de la lista sea registrado primero.
- */
 function hideAITestDropdownDelayed() { setTimeout(() => { const l = document.getElementById('test_ai_dropdown_list'); if(l) l.classList.add('hidden'); }, 200); }
 
 /**
- * Selecciona un torrent específico de la lista y rellena el panel del 
- * Laboratorio de IA con sus metadatos e imágenes preparados para el test.
+ * Selecciona un torrent específico de la lista y rellena el panel del Laboratorio.
  */
 function selectAITestTorrent(t) {
     document.getElementById('test_ai_search_input').value = t.enriched_title;
@@ -149,8 +150,7 @@ function selectAITestTorrent(t) {
 }
 
 /**
- * Ejecuta una prueba de normalización completa usando la IA sobre el torrent 
- * seleccionado en el Laboratorio, mostrando el JSON devuelto en la interfaz.
+ * Ejecuta una prueba de normalización completa usando la IA.
  */
 async function runAITest() {
     const guid = document.getElementById('test_ai_selected_guid').value;
@@ -202,46 +202,16 @@ async function runAITest() {
 // MODALES DEL PROMPT PERSONALIZADO
 // ==========================================
 
-/**
- * Muestra el panel de alerta antes de permitir la edición del prompt crítico de la IA.
- */
-function openPromptWarning() {
-    document.getElementById('aiPromptWarningModal').classList.remove('hidden');
-}
+function openPromptWarning() { document.getElementById('aiPromptWarningModal').classList.remove('hidden'); }
+function closePromptWarning() { document.getElementById('aiPromptWarningModal').classList.add('hidden'); }
+function openPromptEditor() { closePromptWarning(); document.getElementById('aiPromptEditorModal').classList.remove('hidden'); }
+function closePromptEditor() { document.getElementById('aiPromptEditorModal').classList.add('hidden'); }
 
-/**
- * Oculta el panel de alerta de modificación de prompt.
- */
-function closePromptWarning() {
-    document.getElementById('aiPromptWarningModal').classList.add('hidden');
-}
-
-/**
- * Abre el editor completo para modificar la plantilla del sistema enviada al LLM.
- */
-function openPromptEditor() {
-    closePromptWarning();
-    document.getElementById('aiPromptEditorModal').classList.remove('hidden');
-}
-
-/**
- * Oculta el editor de la plantilla base del LLM.
- */
-function closePromptEditor() {
-    document.getElementById('aiPromptEditorModal').classList.add('hidden');
-}
-
-/**
- * Envía el texto modificado en el área de edición del prompt a la base de datos para su 
- * persistencia y uso como nueva guía de parseo para las operaciones de IA.
- */
 async function saveCustomPrompt() {
     const promptText = document.getElementById('custom_prompt_textarea').value;
-    
     try {
         const res = await fetch('/api/ui/ai/prompt', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ custom_prompt: promptText })
         });
         const data = await res.json();
@@ -254,10 +224,6 @@ async function saveCustomPrompt() {
     } catch(e) { showToast("Error de red.", false); }
 }
 
-/**
- * Elimina la personalización del prompt, volviendo a emplear las instrucciones maestras 
- * que vienen precompiladas por defecto en el núcleo de Kitsunarr.
- */
 async function resetPrompt() {
     if(!confirm("¿Borrar tu prompt y volver a usar el de fábrica?")) return;
     document.getElementById('custom_prompt_textarea').value = "";
@@ -265,12 +231,9 @@ async function resetPrompt() {
 }
 
 /**
- * Rellena el área de texto del editor del prompt con el contenido actual guardado en la base de datos
+ * ARRANQUE INICIAL
  */
 document.addEventListener("DOMContentLoaded", () => {
-    if(document.getElementById('ping_provider')) {
-        togglePingFields();
-    }
     if(document.getElementById('test_ai_dropdown_list')) {
         populateAITestDropdown();
     }

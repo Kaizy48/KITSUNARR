@@ -81,7 +81,6 @@ function renderSearchResults(results) {
         const card = document.createElement('div');
         card.className = "group flex flex-col relative bg-[#11051c] rounded-lg border border-gray-800 shadow-md hover:border-yellow-500/50 transition-all duration-300";
         
-        // Lógica dual de nombres
         let displayName = "";
         if (t.tvdb_status === 'Listo' && t.tvdb_series_name_es) {
             displayName = t.tvdb_series_name_es;

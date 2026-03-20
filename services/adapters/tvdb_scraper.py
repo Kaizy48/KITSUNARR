@@ -222,7 +222,6 @@ async def fetch_full_tvdb_series(tvdb_id: str, config: SystemConfig):
     if not config.tvdb_api_key: return
     logger.info(f"⏳ [TVDB] Construyendo Ficha Maestra para el ID {tvdb_id}...")
     try:
-        # Peticiones de red (Libres, sin BD)
         data = await asyncio.to_thread(_tvdb_get_extended, config.tvdb_api_key, tvdb_id)
         if not data: 
             logger.error(f"❌ [TVDB] La API no devolvió datos extendidos para el ID {tvdb_id}.")
@@ -245,7 +244,6 @@ async def fetch_full_tvdb_series(tvdb_id: str, config: SystemConfig):
         raw_aliases = data.get("aliases", [])
         clean_aliases = [a.get("name") if isinstance(a, dict) else a for a in raw_aliases] if raw_aliases else []
         
-        # ESCRITURA RELÁMPAGO (Milisegundos)
         with Session(engine) as session:
             existing_show = session.exec(select(TVDBCache).where(TVDBCache.tvdb_id == str(tvdb_id))).first()
             
@@ -300,7 +298,6 @@ async def fetch_tvdb_episodes(tvdb_id: str, config: SystemConfig):
         has_more = True
         total_episodes = 0
         
-        # Micro-sesión de borrado previo (Para evitar duplicados)
         with Session(engine) as session:
             session.exec(delete(TVDBEpisodes).where(TVDBEpisodes.tvdb_id == str(tvdb_id)))
             session.commit()
@@ -308,7 +305,6 @@ async def fetch_tvdb_episodes(tvdb_id: str, config: SystemConfig):
         while has_more:
             logger.info(f"⏳ [TVDB] Descargando episodios (Página {page})...")
             
-            # Peticiones Libres (Red)
             try: data_spa = await asyncio.to_thread(_tvdb_get_episodes_page, config.tvdb_api_key, tvdb_id, page, "spa")
             except: data_spa = {}
             try: data_eng = await asyncio.to_thread(_tvdb_get_episodes_page, config.tvdb_api_key, tvdb_id, page, "eng")
@@ -326,7 +322,6 @@ async def fetch_tvdb_episodes(tvdb_id: str, config: SystemConfig):
             dict_eng = {ep.get("id"): ep for ep in episodes_eng}
             dict_orig = {ep.get("id"): ep for ep in episodes_orig}
             
-            # Micro-sesión de guardado por página (Batch insert relámpago)
             with Session(engine) as session:
                 for ep_spa in episodes_spa:
                     ep_id = ep_spa.get("id")

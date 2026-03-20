@@ -23,7 +23,7 @@ function formatBytes(bytes, decimals = 2) {
 }
 
 /**
- * Muestra una notificación emergente (Toast) temporal en la esquina de la pantalla.
+ * Muestra una notificación emergente (Toast) temporal en la pantalla.
  */
 function showToast(message, isSuccess = true) {
     const container = document.getElementById('toast-container');

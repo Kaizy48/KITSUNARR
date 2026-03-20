@@ -159,8 +159,12 @@ y devuelve los resultados en formato XML Torznab o una lista de IDs.
 """
 async def search_unionfansub_html(query: str, cookie_string: str, base_url: str, offset: int = 0, interactivo: bool = False) -> str | list:
     search_param = urllib.parse.quote(query) if query else ""
-    page_num = offset // 15
-    url = f"https://torrent.unionfansub.com/browse.php?search={search_param}&incldead=0&page={page_num}"
+    
+    page_num = offset // 25 if offset > 0 else 0
+    
+    categories = "&c1=1&c2=1&c3=1&c9=1&c13=1&c15=1"
+    
+    url = f"https://torrent.unionfansub.com/browse.php?search={search_param}&incldead=0{categories}&page={page_num}"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr; +https://github.com/Kaizy48/KITSUNARR)",
