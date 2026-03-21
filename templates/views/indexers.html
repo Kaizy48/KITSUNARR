@@ -74,6 +74,10 @@
 
 {% endblock %}
 
+{% block extra_js %}
+<script src="{{ url_for('static', path='js/views/indexers.js') }}"></script>
+{% endblock %}
+
 {% block modals %}
   {% include 'components/modal_indexer.html' %}
 {% endblock %}

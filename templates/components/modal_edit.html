@@ -36,10 +36,26 @@
                         <input type="text" id="edit_cache_title" class="w-full bg-black border border-gray-600 focus:border-yellow-500 rounded p-2 text-yellow-100 font-mono text-sm outline-none transition shadow-inner" placeholder="Escribe el nombre perfecto..."/>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3 items-center">
-                    <div class="text-blue-400 font-bold text-sm">ID Oficial TVDB</div>
-                    <div class="sm:col-span-2">
-                        <input type="text" id="edit_tvdb_id" class="w-full bg-black border border-gray-600 focus:border-blue-500 rounded p-2 text-blue-100 font-mono text-sm outline-none transition shadow-inner" placeholder="Ej: 259646 (Opcional)"/>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3 items-start">
+                    <div class="text-blue-400 font-bold text-sm pt-2">ID Oficial TVDB</div>
+                    <div class="sm:col-span-2 relative">
+                        <div class="relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-500"></i>
+                            <input type="text" id="edit_tvdb_search" autocomplete="off" oninput="filterOmnibox()" onfocus="showOmnibox()" onblur="hideOmniboxDelayed()" class="w-full bg-black border border-gray-600 focus:border-blue-500 rounded p-2 pl-9 text-blue-100 font-mono text-sm outline-none transition shadow-inner" placeholder="Buscar serie o pegar ID..."/>
+                        </div>
+                        
+                        <input type="hidden" id="edit_tvdb_id">
+                        
+                        <div id="omnibox_dropdown" class="absolute z-20 w-full mt-1 bg-black border border-blue-500/50 rounded shadow-2xl max-h-60 overflow-y-auto custom-scrollbar hidden">
+                            </div>
+                        
+                        <div id="omnibox_selected_badge" class="mt-2 hidden flex items-center justify-between bg-blue-900/30 border border-blue-800 rounded p-2">
+                            <div class="flex items-center">
+                                <i class="fa-solid fa-circle-check text-blue-400 mr-2"></i>
+                                <span id="omnibox_selected_text" class="text-xs text-blue-200 font-bold truncate">Serie Seleccionada</span>
+                            </div>
+                            <button onclick="clearOmniboxSelection()" class="text-gray-400 hover:text-red-400 px-2 transition"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 border-b border-gray-800 pb-3">

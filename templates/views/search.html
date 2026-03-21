@@ -22,7 +22,7 @@
         <div class="flex space-x-4 mb-4">
             <input type="text" id="interactiveSearchInput" onkeydown="if(event.key === 'Enter') runInteractiveSearch()" placeholder="Escribe el nombre del anime..." class="flex-1 bg-black border border-gray-700 rounded p-3 text-white outline-none focus:border-yellow-500 transition">
             <button onclick="runInteractiveSearch()" id="btn_run_search" class="btn-primary glow-yellow px-8">
-                <i class="fa-solid fa-search mr-2"></i> Buscar en Foro
+                <i class="fa-solid fa-search mr-2"></i> Buscar en Tracker
             </button>
         </div>
 
@@ -37,22 +37,18 @@
         </div>
     </div>
 
-    <div class="k-panel overflow-y-auto flex-1 custom-scrollbar">
-        <table class="w-full text-left border-collapse k-table">
-            <thead class="sticky top-0 z-10 bg-[#150824] shadow-md">
-                <tr>
-                    <th class="p-3 font-bold text-xs w-16 text-center">ID</th>
-                    <th class="p-3 font-bold text-xs">Resultado / Fansub</th>
-                    <th class="p-3 font-bold text-xs text-center">Estado IA / TVDB</th>
-                    <th class="p-3 font-bold text-xs text-right">Opciones</th>
-                </tr>
-            </thead>
-            <tbody id="search-results-tbody" class="text-sm">
-                <tr><td colspan="4" class="p-8 text-center text-gray-500">Realiza una búsqueda para interactuar con el Tracker.</td></tr>
-            </tbody>
-        </table>
+    <div class="k-panel overflow-y-auto flex-1 custom-scrollbar p-6">
+        <div id="search-results-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+            <div class="col-span-full text-center p-8 text-gray-500">
+                Realiza una búsqueda para interactuar con el Tracker y ver los resultados aquí.
+            </div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', path='js/views/search.js') }}"></script>
 {% endblock %}
 
 {% block modals %}

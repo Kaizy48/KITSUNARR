@@ -1,22 +1,23 @@
 # ==========================================
-# SCRAPER DEL INDEXADOR UNIONFANSUB
+# IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
-import httpx
-import urllib.parse
-import re
 import asyncio
-from bs4 import BeautifulSoup
-from fastapi import HTTPException
-from dotenv import load_dotenv
-from email.utils import formatdate
+import re
 import time
+import urllib.parse
 from datetime import datetime, timedelta
+from email.utils import formatdate
 
+import httpx
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from fastapi import HTTPException
 from sqlmodel import Session, select
-from core.tracker_login import auto_renew_cookie
+
 from core.database import engine
-from core.models.torrent import TorrentCache
 from core.logger import logger
+from core.models.torrent import TorrentCache
+from core.tracker_login import auto_renew_cookie
 from services.adapters.forum_scraper import fetch_poster_url
 
 load_dotenv()
@@ -29,12 +30,6 @@ load_dotenv()
 """
 Convierte fechas en formato de texto español al formato RFC estándar 
 requerido por Sonarr en el XML Torznab.
-
-Parámetros:
-    date_str (str): Cadena de texto con la fecha en español (ej. '05 Mar 2024 16:30').
-
-Retorna:
-    str: Fecha formateada en estándar RFC, o la fecha y hora actuales en caso de error.
 """
 def parse_spanish_date_to_rfc(date_str: str) -> str:
     meses = {"Ene": "01", "Feb": "02", "Mar": "03", "Abr": "04", "May": "05", "Jun": "06", 
@@ -56,12 +51,6 @@ def parse_spanish_date_to_rfc(date_str: str) -> str:
 """
 Analiza el título procesado por la IA y extrae los números de temporada para 
 generar los atributos Torznab de Sonarr (soporta rangos como S01-S04 o temporadas únicas).
-
-Parámetros:
-    title (str): Título procesado y normalizado.
-
-Retorna:
-    list[int]: Lista de enteros que representan cada temporada contenida en el release.
 """
 def extract_seasons(title: str) -> list[int]:
     seasons = []
@@ -81,12 +70,6 @@ def extract_seasons(title: str) -> list[int]:
 """
 Extrae la sinopsis, metadatos técnicos y caducidad del freeleech 
 analizando el código HTML de la ficha de detalles de un torrent específico.
-
-Parámetros:
-    html_content (str): Código HTML completo de la página de detalles del tracker.
-
-Retorna:
-    dict: Diccionario estructurado con la información extraída.
 """
 def parse_ficha_metadata(html_content: str) -> dict:
     soup = BeautifulSoup(html_content, "lxml")
@@ -154,12 +137,6 @@ def parse_ficha_metadata(html_content: str) -> dict:
 """
 Convierte una cadena de texto que describe un tamaño (ej. '1.5 GB') en su 
 equivalente numérico en bytes enteros, necesario para el protocolo Torznab.
-
-Parámetros:
-    size_str (str): Cadena de texto representativa del tamaño.
-
-Retorna:
-    int: Tamaño numérico en bytes. Devuelve 0 en caso de no poder parsearlo.
 """
 def parse_size_to_bytes(size_str: str) -> int:
     size_str = size_str.replace(",", ".").upper().strip()
@@ -179,24 +156,18 @@ def parse_size_to_bytes(size_str: str) -> int:
 Ejecuta la búsqueda y extracción de datos del tracker principal simulando 
 un navegador personalizado de Kitsunarr. Gestiona la caché, extrae metadatos adicionales de cada ficha, 
 y devuelve los resultados en formato XML Torznab o una lista de IDs.
-
-Parámetros:
-    query (str): Término de búsqueda solicitado.
-    cookie_string (str): Cookie de sesión válida del usuario.
-    base_url (str): URL base de la aplicación Kitsunarr.
-    offset (int): Paginación de la búsqueda (por defecto 0).
-    interactivo (bool): Determina si se devuelve una lista de IDs o el XML directamente.
-
-Retorna:
-    str | list: XML en formato Torznab listo para Sonarr, o una lista de identificadores.
 """
 async def search_unionfansub_html(query: str, cookie_string: str, base_url: str, offset: int = 0, interactivo: bool = False) -> str | list:
     search_param = urllib.parse.quote(query) if query else ""
-    page_num = offset // 15
-    url = f"https://torrent.unionfansub.com/browse.php?search={search_param}&incldead=0&page={page_num}"
+    
+    page_num = offset // 25 if offset > 0 else 0
+    
+    categories = "&c1=1&c2=1&c3=1&c9=1&c13=1&c15=1"
+    
+    url = f"https://torrent.unionfansub.com/browse.php?search={search_param}&incldead=0{categories}&page={page_num}"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr/0.2.1; +https://github.com/Kaizy48/KITSUNARR)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr; +https://github.com/Kaizy48/KITSUNARR)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",
@@ -239,94 +210,112 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
 
             rows = torrents_table.find_all("tr")[1:] 
             
-            with Session(engine) as db_session:
-                for row in rows:
-                    cols = row.find_all("td")
-                    if len(cols) < 11: continue
-                    
-                    title_tag = cols[1].find("b", class_="name")
-                    title = title_tag.text.strip() if title_tag else "Sin título"
-                    
-                    fansub_tag = cols[1].find("span", re.compile(r"fansub.*"))
-                    fansub_clean = fansub_tag.text.replace("[", "").replace("]", "").strip() if fansub_tag else ""
-                    
-                    original_title = f"[UnionFansub | {fansub_clean}] {title}" if fansub_clean else f"[UnionFansub] {title}"
+            for row in rows:
+                cols = row.find_all("td")
+                if len(cols) < 11: continue
+                
+                title_tag = cols[1].find("b", class_="name")
+                title = title_tag.text.strip() if title_tag else "Sin título"
+                
+                fansub_tag = cols[1].find("span", re.compile(r"fansub.*"))
+                fansub_clean = fansub_tag.text.replace("[", "").replace("]", "").strip() if fansub_tag else ""
+                
+                original_title = f"[UnionFansub | {fansub_clean}] {title}" if fansub_clean else f"[UnionFansub] {title}"
 
-                    details_link = cols[1].find("a", href=True)
-                    torrent_id = re.search(r"id=(\d+)", details_link['href']).group(1) if details_link else ""
-                    
-                    if not torrent_id: continue
+                details_link = cols[1].find("a", href=True)
+                torrent_id = re.search(r"id=(\d+)", details_link['href']).group(1) if details_link else ""
+                
+                if not torrent_id: continue
 
-                    if torrent_id not in interactive_ids:
-                        interactive_ids.append(torrent_id)
+                if torrent_id not in interactive_ids:
+                    interactive_ids.append(torrent_id)
 
-                    size_bytes = parse_size_to_bytes(cols[7].text.strip())
-                    seeders = cols[9].text.strip()
-                    leechers = cols[10].text.strip()
+                size_bytes = parse_size_to_bytes(cols[7].text.strip())
+                seeders = cols[9].text.strip()
+                leechers = cols[10].text.strip()
 
+                db_torrent_data = None
+                with Session(engine) as db_session:
                     db_torrent = db_session.exec(select(TorrentCache).where(TorrentCache.guid == torrent_id)).first()
-
                     if db_torrent:
-                        logger.info(f"⚡ [CACHÉ] Encontrado en DB: {torrent_id}")
-                        pub_date = db_torrent.pub_date or formatdate(time.time(), localtime=False, usegmt=True)
+                        db_torrent_data = {
+                            "enriched_title": db_torrent.enriched_title,
+                            "pub_date": db_torrent.pub_date,
+                            "freeleech_until": db_torrent.freeleech_until,
+                            "ai_translated_title": db_torrent.ai_translated_title,
+                            "ai_status": db_torrent.ai_status,
+                            "tvdb_id": db_torrent.tvdb_id
+                        }
+
+                if db_torrent_data:
+                    logger.info(f"⚡ [CACHÉ] Encontrado en DB: {torrent_id}")
+                    pub_date = db_torrent_data["pub_date"] or formatdate(time.time(), localtime=False, usegmt=True)
+                    
+                    if not interactivo:
+                        torrents_data.append({
+                            "title": db_torrent_data["enriched_title"], "guid": f"{torrent_id}_base",
+                            "link": f"{base_url}/api/download/{torrent_id}_base", "size_bytes": size_bytes,
+                            "seeders": seeders, "leechers": leechers, "pub_date": pub_date, 
+                            "freeleech_until": db_torrent_data["freeleech_until"],
+                            "tvdb_id": None, "seasons": []
+                        })
                         
+                        if db_torrent_data["ai_translated_title"] and db_torrent_data["ai_status"] in ["Listo", "Manual"]:
+                            torrents_data.append({
+                                "title": db_torrent_data["ai_translated_title"], "guid": f"{torrent_id}_ai",
+                                "link": f"{base_url}/api/download/{torrent_id}_ai", "size_bytes": size_bytes,
+                                "seeders": seeders, "leechers": leechers, "pub_date": pub_date, 
+                                "freeleech_until": db_torrent_data["freeleech_until"],
+                                "tvdb_id": db_torrent_data["tvdb_id"],
+                                "seasons": extract_seasons(db_torrent_data["ai_translated_title"])
+                            })
+                
+                else:
+                    logger.info(f"🔍 [NUEVO] Raspando Ficha de: {torrent_id}")
+                    details_url = f"https://torrent.unionfansub.com/details.php?id={torrent_id}&hit=1"
+                    
+                    try:
+                        details_resp = await client.get(details_url)
+                        details_resp.raise_for_status()
+                        
+                        ficha_data = parse_ficha_metadata(details_resp.text)
+                        enriched_title = f"{original_title} {ficha_data['extra_info']}".strip()
+                        
+                        poster_url = None
+                        if ficha_data.get("forum_url"):
+                            poster_url = await fetch_poster_url(ficha_data["forum_url"], cookie_string)
+                        
+                        with Session(engine) as db_session:
+                            try:
+                                existing = db_session.exec(select(TorrentCache).where(TorrentCache.guid == torrent_id)).first()
+                                if not existing:
+                                    new_torrent = TorrentCache(
+                                        indexer="unionfansub", guid=torrent_id, fansub_name=fansub_clean,
+                                        original_title=original_title, enriched_title=enriched_title,
+                                        description=ficha_data['description'], ai_status="Pendiente",
+                                        poster_url=poster_url, size_bytes=size_bytes, 
+                                        download_url=f"{base_url}/api/download/{torrent_id}_base",
+                                        pub_date=ficha_data['pub_date'], freeleech_until=ficha_data['freeleech_until']
+                                    )
+                                    db_session.add(new_torrent)
+                                    db_session.commit()
+                            except Exception as db_e:
+                                db_session.rollback()
+                                logger.error(f"⚠️ Error base de datos guardando ficha {torrent_id}: {db_e}")
+
                         if not interactivo:
                             torrents_data.append({
-                                "title": db_torrent.enriched_title, "guid": f"{torrent_id}_base",
+                                "title": enriched_title, "guid": f"{torrent_id}_base",
                                 "link": f"{base_url}/api/download/{torrent_id}_base", "size_bytes": size_bytes,
-                                "seeders": seeders, "leechers": leechers, "pub_date": pub_date, 
-                                "freeleech_until": db_torrent.freeleech_until,
+                                "seeders": seeders, "leechers": leechers, "pub_date": ficha_data['pub_date'],
+                                "freeleech_until": ficha_data['freeleech_until'],
                                 "tvdb_id": None, "seasons": []
                             })
-                            
-                            if db_torrent.ai_translated_title and db_torrent.ai_status in ["Listo", "Manual"]:
-                                torrents_data.append({
-                                    "title": db_torrent.ai_translated_title, "guid": f"{torrent_id}_ai",
-                                    "link": f"{base_url}/api/download/{torrent_id}_ai", "size_bytes": size_bytes,
-                                    "seeders": seeders, "leechers": leechers, "pub_date": pub_date, 
-                                    "freeleech_until": db_torrent.freeleech_until,
-                                    "tvdb_id": db_torrent.tvdb_id,
-                                    "seasons": extract_seasons(db_torrent.ai_translated_title)
-                                })
-                    
-                    else:
-                        logger.info(f"🔍 [NUEVO] Raspando Ficha de: {torrent_id}")
-                        details_url = f"https://torrent.unionfansub.com/details.php?id={torrent_id}&hit=1"
                         
-                        try:
-                            details_resp = await client.get(details_url)
-                            details_resp.raise_for_status()
-                            
-                            ficha_data = parse_ficha_metadata(details_resp.text)
-                            enriched_title = f"{original_title} {ficha_data['extra_info']}".strip()
-                            
-                            poster_url = None
-                            if ficha_data.get("forum_url"):
-                                poster_url = await fetch_poster_url(ficha_data["forum_url"], cookie_string)
-                            
-                            new_torrent = TorrentCache(
-                                indexer="unionfansub", guid=torrent_id,
-                                original_title=original_title, enriched_title=enriched_title,
-                                description=ficha_data['description'], ai_status="Pendiente",
-                                poster_url=poster_url, size_bytes=size_bytes, 
-                                download_url=f"{base_url}/api/download/{torrent_id}_base",
-                                pub_date=ficha_data['pub_date'], freeleech_until=ficha_data['freeleech_until']
-                            )
-                            db_session.add(new_torrent)
-                            db_session.commit()
-
-                            if not interactivo:
-                                torrents_data.append({
-                                    "title": enriched_title, "guid": f"{torrent_id}_base",
-                                    "link": f"{base_url}/api/download/{torrent_id}_base", "size_bytes": size_bytes,
-                                    "seeders": seeders, "leechers": leechers, "pub_date": ficha_data['pub_date'],
-                                    "freeleech_until": ficha_data['freeleech_until'],
-                                    "tvdb_id": None, "seasons": []
-                                })
-                            
-                            await asyncio.sleep(1.5)
-                        except Exception as e:
-                            logger.error(f"⚠️ Error raspando ficha {torrent_id}: {e}")
+                        await asyncio.sleep(1.5)
+                        
+                    except Exception as e:
+                        logger.error(f"⚠️ Error de red/raspado en ficha {torrent_id}: {e}")
                             
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Error conectando al tracker: {e}")
@@ -339,13 +328,6 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
 """
 Construye la estructura XML válida bajo el esquema de Torznab para la respuesta.
 Inyecta dinámicamente los atributos Torznab avanzados de TVDB y Temporada para Sonarr.
-
-Parámetros:
-    torrents (list): Lista de diccionarios con la información pre-procesada de cada torrent.
-    query (str): El término de búsqueda que generó esta respuesta.
-
-Retorna:
-    str: Cadena de texto XML compatible con Sonarr/Prowlarr.
 """
 def generate_torznab_xml(torrents: list, query: str) -> str:
     xml_items = ""
@@ -392,15 +374,14 @@ def generate_torznab_xml(torrents: list, query: str) -> str:
     </rss>
     """
 
+
+# ==========================================
+# TEST DE CONEXIÓN Y ESTADO
+# ==========================================
+
 """
 Realiza una petición rápida de prueba al rastreador web utilizando las cabeceras 
 que simulan un navegador personalizado de Kitsunarr para verificar si la cookie actual sigue siendo válida.
-
-Parámetros:
-    cookie_string (str): La cookie de sesión que se debe probar.
-
-Retorna:
-    bool: True si la respuesta es 200 OK, False en caso contrario.
 """
 async def test_unionfansub_connection(cookie_string: str) -> bool:
     url = "https://torrent.unionfansub.com/browse.php"

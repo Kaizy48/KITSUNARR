@@ -1,8 +1,14 @@
 # ==========================================
-# MODELOS DE DATOS: CONFIGURACIÓN DE TRACKERS
+# IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
 from typing import Optional
+
 from sqlmodel import Field, SQLModel
+
+
+# ==========================================
+# MODELOS DE DATOS: CONFIGURACIÓN DE TRACKERS
+# ==========================================
 
 """
 Modelo de base de datos que guarda las credenciales y el estado de conexión de los diferentes indexadores.
