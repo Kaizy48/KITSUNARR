@@ -1,9 +1,13 @@
 # ==========================================
-# CONFIGURACIÓN DE BASE DE DATOS Y PERSISTENCIA
+# IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
 import os
-from sqlmodel import SQLModel, create_engine, Session
 from dotenv import load_dotenv
+from sqlmodel import SQLModel, create_engine, Session
+
+# ==========================================
+# CONFIGURACIÓN DE BASE DE DATOS Y PERSISTENCIA
+# ==========================================
 
 load_dotenv()
 
@@ -17,7 +21,10 @@ sqlite_url = f"sqlite:///{sqlite_file_name}"
 engine = create_engine(
     sqlite_url, 
     echo=False,
-    connect_args={"check_same_thread": False}
+    connect_args={
+        "check_same_thread": False,
+        "timeout": 20.0
+    }
 )
 
 
@@ -32,15 +39,14 @@ Esta función es llamada internamente al arrancar el servidor FastAPI en el cicl
 """
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
+    with engine.connect() as con:
+        con.exec_driver_sql("PRAGMA journal_mode=WAL;")
 
 """
 Generador de sesiones de base de datos.
 Proporciona una sesión activa para interactuar con la base de datos y se asegura 
 de cerrarla automáticamente cuando la operación termina. Se utiliza principalmente 
 para la inyección de dependencias en las rutas web de FastAPI.
-
-Retorna:
-    Session: Objeto de sesión de SQLModel conectado al motor de base de datos local.
 """
 def get_session():
     with Session(engine) as session:

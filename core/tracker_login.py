@@ -1,8 +1,17 @@
+# ==========================================
+# IMPORTS Y CONFIGURACIÓN INICIAL
+# ==========================================
 import httpx
 from sqlmodel import Session, select
+
 from core.database import engine
-from core.models.indexer import IndexerConfig
 from core.logger import logger
+from core.models.indexer import IndexerConfig
+
+
+# ==========================================
+# AUTENTICACIÓN Y GESTIÓN DE SESIONES
+# ==========================================
 
 """
 Realiza un inicio de sesión en dos pasos simulando exactamente el formulario 
@@ -11,15 +20,11 @@ Extrae y ensambla todas las cookies resultantes para mantener la sesión viva
 de cara a las futuras descargas y búsquedas.
 """
 async def attempt_unionfansub_login(username: str, password: str) -> str | None:
-    """
-    Realiza un login simulando exactamente el formulario de 'quick_login' 
-    desde la portada del tracker hacia el foro.
-    """
     tracker_url = "https://torrent.unionfansub.com/index.php"
     login_url = "https://foro.unionfansub.com/member.php"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr/0.2.2; +https://github.com/Kaizy48/KITSUNARR)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr; +https://github.com/Kaizy48/KITSUNARR)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",

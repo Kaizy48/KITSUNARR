@@ -1,10 +1,15 @@
 # ==========================================
-# SISTEMA CENTRAL DE LOGS Y EVENTOS
+# IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+
 from dotenv import load_dotenv
+
+# ==========================================
+# SISTEMA CENTRAL DE LOGS Y EVENTOS
+# ==========================================
 
 """
 Configuración global del sistema de registro (Logging) de Kitsunarr.

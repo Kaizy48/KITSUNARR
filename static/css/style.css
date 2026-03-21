@@ -1,19 +1,62 @@
 /* Paleta de colores KITSUNARR */
 :root {
-    --bg-deep-purple: #1a0b2e; /* Fondo principal morado muy oscuro */
-    --bg-card-purple: #2d1b4e; /* Fondo de las tarjetas/paneles */
-    --accent-yellow: #ffd700;  /* Amarillo/Dorado vibrante */
+    --bg-deep-purple: #1a0b2e;
+    --bg-card-purple: #2d1b4e;
+    --accent-yellow: #ffd700;
     --text-white: #ffffff;
-    --text-muted: #b3a7c9;     /* Blanco apagado para textos secundarios */
+    --text-muted: #b3a7c9;
+    
+    --scrollbar-thumb: #452b7a; 
+    --scrollbar-thumb-hover: #6b44bc;
 }
 
 body {
     background-color: var(--bg-deep-purple);
     color: var(--text-white);
     font-family: 'Consolas', 'Courier New', Courier, monospace; 
+    
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-/* El resplandor (sombra) amarillo que pedías */
+/* ========================================== */
+/* SCROLLBAR GLOBAL PARA CHROME / EDGE / SAFARI */
+/* ========================================== */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent; 
+}
+::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb); 
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover); 
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+}
+
+
+/* ========================================== */
+/* EFECTOS Y COMPONENTES                      */
+/* ========================================== */
+
 .glow-yellow {
     box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
     border: 1px solid rgba(255, 215, 0, 0.6);
@@ -24,17 +67,17 @@ body {
     border: 1px solid var(--accent-yellow);
 }
 
-/* Paneles y tarjetas */
+
 .k-panel {
     background-color: var(--bg-card-purple);
     border: 1px solid #452b7a;
     border-radius: 8px;
 }
 
-/* Botones */
+
 .btn-primary {
     background-color: var(--accent-yellow);
-    color: #000000; /* Texto negro sobre fondo amarillo para que lea bien */
+    color: #000000;
     font-weight: bold;
     border: none;
     border-radius: 4px;
@@ -48,7 +91,6 @@ body {
     box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
 }
 
-/* Tablas */
 .k-table th {
     background-color: #150824;
     color: var(--accent-yellow);

@@ -1,8 +1,14 @@
 # ==========================================
-# MODELOS DE DATOS: CONFIGURACIÓN DEL SISTEMA E IA
+# IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
 from typing import Optional
+
 from sqlmodel import Field, SQLModel
+
+
+# ==========================================
+# MODELOS DE DATOS: CONFIGURACIÓN DEL SISTEMA E IA
+# ==========================================
 
 """
 Modelo de base de datos que guarda la configuración global del núcleo de Kitsunarr.
@@ -36,6 +42,9 @@ Atributos:
 - api_key: Clave de autenticación para proveedores en la nube.
 - base_url: URL base para la conexión con LLMs locales (como Ollama).
 - custom_prompt: Prompt personalizado por el usuario para sustituir al predeterminado.
+- rpm_limit: Límite de peticiones por minuto.
+- tpm_limit: Límite de tokens por minuto.
+- rpd_limit: Límite de peticiones por día.
 """
 class AIConfig(SQLModel, table=True):
     id: int = Field(default=1, primary_key=True)
@@ -46,3 +55,6 @@ class AIConfig(SQLModel, table=True):
     api_key: str = ""
     base_url: str = "http://localhost:11434"
     custom_prompt: Optional[str] = Field(default=None)
+    rpm_limit: int = Field(default=5)
+    tpm_limit: int = Field(default=250000)
+    rpd_limit: int = Field(default=20)
