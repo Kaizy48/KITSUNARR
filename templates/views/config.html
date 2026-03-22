@@ -30,6 +30,64 @@
         </div>
 
         <div class="k-panel p-6 w-full flex flex-col h-full">
+            <div class="flex items-start justify-between mb-6">
+                <div class="flex-1">
+                    <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-tv text-blue-400 mr-2"></i> Conexión Sonarr</h2>
+                    <p class="text-sm text-gray-400">Vincula tu instancia para auto-añadir Kitsunarr como indexador.</p>
+                </div>
+                <div class="relative group cursor-pointer w-16 h-16 rounded-lg overflow-hidden shrink-0 ml-4">
+                    <img src="/static/img/Sonarr-logo-256.png" class="w-full h-full object-contain p-2 transition-transform duration-300 hover:scale-110">
+                    <a href="{{ sys_config.sonarr_url }}" target="_blank" class="absolute inset-0 bg-blue-600/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-[10px] font-bold text-white uppercase text-center p-1">Abrir Sonarr</a>
+                </div>
+            </div>
+            
+            <div class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">URL Instancia</label>
+                        <input type="text" id="sonarr_url" value="{{ sys_config.sonarr_url if sys_config.sonarr_url else '' }}" placeholder="http://localhost:8989" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white text-sm outline-none focus:border-blue-500 transition shadow-inner">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">API Key Sonarr</label>
+                        <input type="password" id="sonarr_key" value="{{ sys_config.sonarr_key if sys_config.sonarr_key else '' }}" placeholder="Clave de Sonarr" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white text-sm outline-none focus:border-blue-500 transition shadow-inner">
+                    </div>
+                </div>
+                <button onclick="syncApp('sonarr')" class="w-full bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white py-2.5 rounded border border-blue-600/50 transition font-bold text-sm">
+                    <i class="fa-solid fa-sync mr-2"></i> Sincronizar Indexador
+                </button>
+            </div>
+        </div>
+
+        <div class="k-panel p-6 w-full flex flex-col h-full">
+            <div class="flex items-start justify-between mb-6">
+                <div class="flex-1">
+                    <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-film text-yellow-500 mr-2"></i> Conexión Radarr</h2>
+                    <p class="text-sm text-gray-400">Auto-configura Kitsunarr en tu instancia de cine.</p>
+                </div>
+                <div class="relative group cursor-pointer w-16 h-16 rounded-lg overflow-hidden shrink-0 ml-4">
+                    <img src="/static/img/Radarr-logo-256.png" class="w-full h-full object-contain p-2 transition-transform duration-300 hover:scale-110">
+                    <a href="{{ sys_config.radarr_url }}" target="_blank" class="absolute inset-0 bg-yellow-600/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-[10px] font-bold text-white uppercase text-center p-1">Abrir Radarr</a>
+                </div>
+            </div>
+            
+            <div class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">URL Instancia</label>
+                        <input type="text" id="radarr_url" value="{{ sys_config.radarr_url if sys_config.radarr_url else '' }}" placeholder="http://localhost:7878" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">API Key Radarr</label>
+                        <input type="password" id="radarr_key" value="{{ sys_config.radarr_key if sys_config.radarr_key else '' }}" placeholder="Clave de Radarr" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner">
+                    </div>
+                </div>
+                <button onclick="syncApp('radarr')" class="w-full bg-yellow-600/10 hover:bg-yellow-600 text-yellow-500 hover:text-white py-2.5 rounded border border-yellow-600/50 transition font-bold text-sm">
+                    <i class="fa-solid fa-sync mr-2"></i> Sincronizar Indexador
+                </button>
+            </div>
+        </div>
+
+        <div class="k-panel p-6 w-full flex flex-col h-full">
             <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-sliders text-yellow-500 mr-2"></i> Comportamiento de la IA</h2>
             <p class="text-sm text-gray-400 mb-6">Controla el motor LLM para habilitar el procesamiento inteligente de los títulos del tracker.</p>
             
@@ -74,7 +132,9 @@
             <div class="flex flex-col md:flex-row gap-8 items-start relative z-10">
                 <div class="w-full md:w-1/4 flex justify-center md:justify-start shrink-0 pt-2">
                     <a href="https://thetvdb.com/api-information" target="_blank" class="block transition transform hover:scale-105 hover:drop-shadow-[0_0_15px_rgba(46,204,113,0.3)]">
-                        <img src="https://thetvdb.com/images/logo.png" alt="TheTVDB" class="w-36 object-contain">
+                        <div class="p-2 inline-block">
+                            <img src="/static/img/tvdb.png" alt="TheTVDB" class="w-24 object-contain drop-shadow-md">
+                        </div>
                     </a>
                 </div>
                 

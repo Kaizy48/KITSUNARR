@@ -2,9 +2,7 @@
 # IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
 from typing import Optional
-
 from sqlmodel import Field, SQLModel
-
 
 # ==========================================
 # MODELOS DE DATOS: CONFIGURACIÓN DE TRACKERS
@@ -18,10 +16,10 @@ Atributos:
 - identifier: Nombre interno y único del indexador (Clave Primaria).
 - name: Nombre visual utilizado para la interfaz gráfica.
 - auth_type: Tipo de autenticación requerida por el indexador (ej. 'cookie', 'login').
-- cookie_string: Cadena de texto de la cookie de sesión capturada del navegador.
+- cookie_string: (Cifrado) Cadena de texto de la cookie de sesión capturada del navegador.
 - username: Nombre de usuario para sistemas de inicio de sesión automático.
-- password: Contraseña para sistemas de inicio de sesión automático.
-- api_key: Clave de acceso si el tracker expone una API oficial nativa.
+- password: (Cifrado) Contraseña para sistemas de inicio de sesión automático.
+- api_key: (Cifrado) Clave de acceso si el tracker expone una API oficial nativa.
 - is_enabled: Interruptor global para activar o desactivar las búsquedas en este tracker.
 - status: Último estado de conexión conocido ('ok', 'error', 'unknown').
 """

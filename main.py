@@ -8,6 +8,8 @@ import json
 import asyncio
 from datetime import datetime
 from contextlib import asynccontextmanager
+import jwt
+from fastapi.responses import RedirectResponse
 
 import httpx
 import uvicorn
@@ -32,6 +34,8 @@ from core.tracker_login import attempt_unionfansub_login, auto_renew_cookie
 from services.adapters.union_scraper import search_unionfansub_html, test_unionfansub_connection
 from services.adapters.tvdb_scraper import process_pending_tvdb, clean_for_tvdb, _tvdb_search, fetch_tvdb_episodes, fetch_full_tvdb_series
 from services.export import export_torrents_only, export_tvdb_only, export_full_bundle, import_relational_data
+from services.encrypt import SECRETS_FILE, encrypt_secret, decrypt_secret
+from services.arr_manager import sync_indexer_to_arr
 
 load_dotenv()
 
@@ -74,28 +78,44 @@ async def tvdb_background_worker():
 
 """
 Maneja el ciclo de vida de la aplicación FastAPI.
-Inicializa la base de datos, genera las configuraciones por defecto 
-si es la primera ejecución y arranca los demonios de fondo.
+Inicializa la base de datos, carga o genera las llaves de cifrado, 
+verifica la existencia del administrador y arranca los demonios.
 """
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🗄️ Inicializando Base de Datos SQLite...")
     create_db_and_tables()
+    
+    if not os.path.exists(SECRETS_FILE):
+        logger.info("🔑 No se ha detectado clave de cifrado. Se va a proceder a generar una nueva llave maestra en 'secrets.xml'...")
+    else:
+        logger.info("🔑 Clave de cifrado maestra detectada y cargada exitosamente.")
+    
     with Session(engine) as session:
         config = session.exec(select(SystemConfig)).first()
         if not config:
+            logger.info("⚙️ Configuración del sistema no encontrada. Generando configuración inicial y Torznab API Key...")
             new_key = secrets.token_hex(16)
             config = SystemConfig(api_key=new_key)
             session.add(config)
+            session.commit()
             
         ai_config = session.exec(select(AIConfig)).first()
         if not ai_config:
+            logger.info("🧠 Configuración de IA no encontrada. Generando perfil por defecto...")
             session.add(AIConfig())
-        session.commit()
+            session.commit()
             
+        if not config.admin_password_hash:
+            logger.warning("⚠️ ATENCIÓN: No hay usuario administrador configurado en la base de datos.")
+            logger.warning("⚠️ La aplicación entrará en modo 'Setup' en el primer acceso web.")
+        else:
+            logger.info(f"🛡️ Sistema securizado: Administrador '{config.admin_user}' verificado.")
+            
+    logger.info("🚀 Arrancando trabajadores de fondo (Workers)...")
     asyncio.create_task(ai_background_worker())
     asyncio.create_task(tvdb_background_worker())
-    logger.info("✅ Base de Datos y Trabajadores de IA y TVDB listos.")
+    logger.info("✅ Kitsunarr Core iniciado correctamente. Listo para recibir peticiones.")
     yield
 
 
@@ -106,6 +126,61 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Kitsunarr", lifespan=lifespan)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# ==========================================
+# MIDDLEWARE DE SEGURIDAD (GUARDIÁN)
+# ==========================================
+from services.encrypt import MASTER_KEY
+
+"""
+Guardián global que intercepta el 100% de las peticiones entrantes.
+Aplica doble política de seguridad:
+1. Rutas Sonarr/Radarr: Exige la Torznab API Key en la URL.
+2. Rutas UI Web: Exige una cookie JWT válida. Redirige a login/setup si no la hay.
+"""
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    path = request.url.path
+    
+    public_paths = ["/login", "/setup", "/api/ui/auth/login", "/api/ui/auth/setup", "/api/ui/system/restart"]
+    if path.startswith("/static") or path in public_paths:
+        return await call_next(request)
+        
+    if path == "/api" or path.startswith("/api/download"):
+        provided_apikey = request.query_params.get("apikey", "")
+        with Session(engine) as session:
+            config = session.exec(select(SystemConfig)).first()
+            if not config or provided_apikey != config.api_key:
+                client_ip = request.client.host if request.client else "Unknown"
+                logger.warning(f"❌ Acceso denegado a {path} desde {client_ip} (API Key inválida: '{provided_apikey}')")
+                return Response(content="<?xml version='1.0' encoding='UTF-8'?><error code='100' description='Invalid API Key'/>", media_type="application/xml", status_code=401)
+        return await call_next(request)
+
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        admin_exists = bool(config and config.admin_password_hash)
+
+    token = request.cookies.get("kitsunarr_session")
+    is_authenticated = False
+    
+    if token:
+        try:
+            jwt.decode(token, MASTER_KEY, algorithms=["HS256"])
+            is_authenticated = True
+        except Exception:
+            pass
+            
+    if not is_authenticated:
+        if not admin_exists:
+            if path.startswith("/api/ui"):
+                return JSONResponse(status_code=401, content={"success": False, "redirect": "/setup"})
+            return RedirectResponse(url="/setup")
+        else:
+            if path.startswith("/api/ui"):
+                return JSONResponse(status_code=401, content={"success": False, "redirect": "/login"})
+            return RedirectResponse(url="/login")
+            
+    return await call_next(request)
 
 """
 Capturador de excepciones globales. 
@@ -120,6 +195,63 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"success": False, "error": f"Error interno: {str(exc)}"}
     )
 
+# ==========================================
+# RUTAS DE AUTENTICACIÓN (LOGIN Y SETUP)
+# ==========================================
+from datetime import timedelta
+from services.encrypt import hash_password, verify_password
+
+class SetupForm(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/ui/auth/setup")
+async def setup_admin(data: SetupForm):
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        if config.admin_password_hash:
+            return {"success": False, "error": "El administrador ya está configurado. Ve al login."}
+            
+        config.admin_user = data.username
+        config.admin_password_hash = hash_password(data.password)
+        session.add(config)
+        session.commit()
+        
+        token = jwt.encode({"user": data.username, "exp": datetime.utcnow() + timedelta(days=7)}, MASTER_KEY, algorithm="HS256")
+        response = JSONResponse(content={"success": True})
+        response.set_cookie(key="kitsunarr_session", value=token, httponly=True, max_age=604800)
+        return response
+
+class LoginForm(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/ui/auth/login")
+async def login_admin(data: LoginForm):
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        
+        if not config or config.admin_user != data.username or not verify_password(data.password, config.admin_password_hash):
+            return {"success": False, "error": "Usuario o contraseña incorrectos."}
+            
+        token = jwt.encode({"user": data.username, "exp": datetime.utcnow() + timedelta(days=7)}, MASTER_KEY, algorithm="HS256")
+        response = JSONResponse(content={"success": True})
+        response.set_cookie(key="kitsunarr_session", value=token, httponly=True, max_age=604800)
+        return response
+
+@app.post("/api/ui/auth/logout")
+async def logout_admin():
+    response = JSONResponse(content={"success": True})
+    response.delete_cookie("kitsunarr_session")
+    return response
+
+@app.get("/login")
+async def ui_login_view(request: Request):
+    return templates.TemplateResponse(request=request, name="views/login.html", context={})
+
+@app.get("/setup")
+async def ui_setup_view(request: Request):
+    return templates.TemplateResponse(request=request, name="views/setup.html", context={})
 
 # ==========================================
 # RUTAS DE VISTAS (RENDERIZADO HTML - UI)
@@ -150,6 +282,10 @@ Renderiza la vista del Laboratorio de IA.
 async def ui_ai_settings_view(request: Request):
     with Session(engine) as session:
         ai_config = session.exec(select(AIConfig)).first()
+        
+    if ai_config and ai_config.api_key:
+        ai_config.api_key = "********"
+        
     return templates.TemplateResponse(request=request, name="views/ai_settings.html", context={"ai_config": ai_config})
 
 """
@@ -160,9 +296,17 @@ async def ui_config_view(request: Request):
     with Session(engine) as session:
         sys_config = session.exec(select(SystemConfig)).first()
         ai_config = session.exec(select(AIConfig)).first()
+        
+    if sys_config:
+        if sys_config.tvdb_api_key: sys_config.tvdb_api_key = "********"
+        if sys_config.sonarr_key: sys_config.sonarr_key = "********"
+        if sys_config.radarr_key: sys_config.radarr_key = "********"
+        
+    if ai_config and ai_config.api_key:
+        ai_config.api_key = "********"
     
     return templates.TemplateResponse(request=request, name="views/config.html", context={
-        "api_key": sys_config.api_key,
+        "api_key": sys_config.api_key if sys_config else "",
         "sys_config": sys_config,
         "ai_config": ai_config
     })
@@ -205,25 +349,16 @@ async def ui_tvdb_search_view(request: Request):
 """
 Endpoint maestro que emula la API Torznab.
 Es el punto de entrada para todas las comunicaciones desde Sonarr/Radarr.
-Valida la clave API, responde a solicitudes de capacidades (caps) y 
-redirige las peticiones de búsqueda al scraper del indexador.
+Valida la clave API mediante el middleware, responde a solicitudes de capacidades (caps) y 
+redirige las peticiones de búsqueda al scraper del indexador inyectando la clave para descargas.
 """
 @app.get("/api")
 async def torznab_endpoint(request: Request):
     params = request.query_params
     action_type = params.get("t")
     query = params.get("q", "")
-    provided_apikey = params.get("apikey", "")
     offset = int(params.get("offset", 0))
     base_url = str(request.base_url).rstrip("/")
-    
-    with Session(engine) as session:
-        sys_config = session.exec(select(SystemConfig)).first()
-        if not sys_config or provided_apikey != sys_config.api_key:
-            client_ip = request.client.host if request.client else "Unknown"
-            logger.error(f"❌ Acceso denegado: Clave API incorrecta desde {client_ip}")
-            error_xml = "<?xml version='1.0' encoding='UTF-8'?><error code='100' description='Invalid API Key'/>"
-            return Response(content=error_xml, media_type="application/xml", status_code=401)
     
     if action_type == "caps":
         logger.info("🤝 Sonarr está comprobando nuestras capacidades (t=caps)...")
@@ -233,10 +368,16 @@ async def torznab_endpoint(request: Request):
     logger.info(f"📡 Sonarr está buscando: '{query}' (Tipo: {action_type}, Offset: {offset})")
 
     active_cookie = None
+    system_api_key = ""
     with Session(engine) as session:
+        sys_config = session.exec(select(SystemConfig)).first()
+        if sys_config:
+            system_api_key = sys_config.api_key
+            
         indexer = session.exec(select(IndexerConfig).where(IndexerConfig.identifier == "unionfansub")).first()
         if indexer and indexer.cookie_string and indexer.status == "ok":
-            active_cookie = indexer.cookie_string
+            from services.encrypt import decrypt_secret
+            active_cookie = decrypt_secret(indexer.cookie_string)
         elif UNION_COOKIE_ENV and UNION_COOKIE_ENV != "PON_TU_COOKIE_AQUI":
             active_cookie = UNION_COOKIE_ENV
 
@@ -246,7 +387,7 @@ async def torznab_endpoint(request: Request):
          return Response(content=error_xml, media_type="application/xml", status_code=401)
 
     logger.info(f"🚀 Buscando '{query}' en UnionFansub...")
-    torznab_xml = await search_unionfansub_html(query, active_cookie, base_url, offset)
+    torznab_xml = await search_unionfansub_html(query, active_cookie, base_url, system_api_key, offset)
     return Response(content=torznab_xml, media_type="application/xml")
 
 """
@@ -261,12 +402,11 @@ async def proxy_download_torrent(guid: str):
         indexer = session.exec(select(IndexerConfig).where(IndexerConfig.identifier == "unionfansub")).first()
         if not indexer or not indexer.cookie_string:
             return Response(content="Indexador no configurado", status_code=401)
-        cookie = indexer.cookie_string
+        cookie = decrypt_secret(indexer.cookie_string)
 
     logger.info(f"📥 Sonarr solicita descarga. Original: {guid} | ID Real: {clean_guid}")
     url = f"https://torrent.unionfansub.com/download.php?torrent={clean_guid}"
     
-    # Cabeceras extremas de simulación de navegador para evitar el 403 Forbidden
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 (Kitsunarr; +https://github.com/Kaizy48/KITSUNARR)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -332,10 +472,10 @@ async def interactive_search_endpoint(q: str, request: Request):
         indexer = session.exec(select(IndexerConfig).where(IndexerConfig.identifier == "unionfansub")).first()
         if not indexer or not indexer.cookie_string:
             return {"success": False, "error": "Indexador no configurado. Falta la cookie."}
-        cookie = indexer.cookie_string
+        cookie = decrypt_secret(indexer.cookie_string)
 
     try:
-        ids_encontrados = await search_unionfansub_html(q, cookie, base_url, 0, interactivo=True)
+        ids_encontrados = await search_unionfansub_html(q, cookie, base_url, "", 0, interactivo=True)
     except HTTPException as he:
         return {"success": False, "error": f"Aviso del tracker: {he.detail}"}
     except Exception as e:
@@ -578,7 +718,8 @@ async def remote_tvdb_search(q: str):
             return {"success": False, "error": "TheTVDB no está configurado."}
         
         try:
-            results = await asyncio.to_thread(_tvdb_search, config.tvdb_api_key, q)
+            decrypted_key = decrypt_secret(config.tvdb_api_key)
+            results = await asyncio.to_thread(_tvdb_search, decrypted_key, q)
             return {"success": True, "results": results}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -665,7 +806,7 @@ class AIConfigForm(BaseModel):
 
 """
 Recibe los detalles de conexión técnicos del LLM (API key, URL, proveedor, límites)
-y los almacena de forma persistente. Limpia la RAM para reiniciar contadores.
+y los almacena de forma persistente cifrando la clave API si ha cambiado.
 """
 @app.post("/api/ui/ai/config")
 async def save_ai_config(data: AIConfigForm):
@@ -676,7 +817,8 @@ async def save_ai_config(data: AIConfigForm):
             
         conf.provider = data.provider
         conf.model_name = data.model_name
-        conf.api_key = data.api_key
+        if data.api_key != "********":
+            conf.api_key = encrypt_secret(data.api_key)
         conf.base_url = data.base_url
         
         conf.rpm_limit = data.rpm_limit
@@ -686,7 +828,6 @@ async def save_ai_config(data: AIConfigForm):
         session.add(conf) 
         session.commit()
         
-        # --- EL DESPERTADOR EN RAM ---
         ai_parser._ai_sleep_until = None
         ai_parser._ram_daily_count = 0
         ai_parser._ram_last_date = datetime.utcnow().date()
@@ -700,7 +841,6 @@ despertar a la IA si estaba bloqueada por un error del proveedor.
 """
 @app.post("/api/ui/ai/reset_quota")
 async def api_reset_ai_quota():
-    # Limpiamos la RAM de ai_parser
     ai_parser._ai_sleep_until = None
     ai_parser._ram_daily_count = 0
     ai_parser._ram_last_date = datetime.utcnow().date()
@@ -734,6 +874,8 @@ async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
         if not config or not config.tvdb_api_key:
             return {"success": False, "error": "TVDB no está configurado."}
             
+        decrypted_key = decrypt_secret(config.tvdb_api_key)
+            
         for guid in data.guids:
             t = session.exec(select(TorrentCache).where(TorrentCache.guid == guid)).first()
             if t:
@@ -741,7 +883,7 @@ async def force_tvdb_process_specific(data: ForceSpecificAIRequest):
                 logger.info(f"🔄 [Manual] Forzando re-escaneo en TVDB para '{query}' (Torrent: {guid})")
                 
                 try:
-                    results = await asyncio.to_thread(_tvdb_search, config.tvdb_api_key, query)
+                    results = await asyncio.to_thread(_tvdb_search, decrypted_key, query)
                     
                     session.exec(delete(TorrentTVDBCandidates).where(TorrentTVDBCandidates.torrent_guid == guid))
                     
@@ -786,40 +928,70 @@ class TestAIRequest(BaseModel):
     config: AIConfigForm
 
 """
-Realiza una prueba aislada procesando un único torrent de la caché con los parámetros
-temporales proporcionados por la UI. No guarda los cambios en la BD local.
+Realiza una prueba aislada procesando un único torrent de la caché.
 """
 @app.post("/api/ui/ai/test")
 async def test_ai_process_endpoint(data: TestAIRequest):
+    api_key_to_use = data.config.api_key
+    if api_key_to_use == "********":
+        with Session(engine) as session:
+            conf = session.exec(select(AIConfig)).first()
+            api_key_to_use = conf.api_key if conf else ""
+    else:
+        api_key_to_use = encrypt_secret(api_key_to_use) if api_key_to_use else ""
+
     with Session(engine) as session:
         t = session.exec(select(TorrentCache).where(TorrentCache.guid == data.guid)).first()
         if not t:
             return {"success": False, "error": "Torrent no encontrado"}
+            
+        candidates_db = session.exec(
+            select(TVDBCache)
+            .join(TorrentTVDBCandidates)
+            .where(TorrentTVDBCandidates.torrent_guid == t.guid)
+        ).all()
         
-        temp_config = AIConfig(
-            provider=data.config.provider, model_name=data.config.model_name,
-            api_key=data.config.api_key, base_url=data.config.base_url
-        )
+        candidates_list = []
+        for c in candidates_db:
+            aliases_list = json.loads(c.aliases) if c.aliases else []
+            candidates_list.append({
+                "tvdb_id": str(c.tvdb_id), "name": c.series_name_es,
+                "aliases": aliases_list, "year": c.first_aired, "overview": c.overview_basic
+            })
         
-        try:
-            logger.info(f"🧠 Probando IA con Torrent \"{t.guid}\" \"{t.enriched_title}\"")
-            result = await test_single_torrent_ai(t.guid, t.enriched_title, t.description or "", temp_config)
-            return {"success": True, "result": result}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        candidates_json_str = json.dumps(candidates_list, ensure_ascii=False) if candidates_list else None
+        
+    temp_config = AIConfig(
+        provider=data.config.provider, model_name=data.config.model_name,
+        api_key=api_key_to_use, base_url=data.config.base_url
+    )
+    
+    try:
+        logger.info(f"🧠 Probando IA con Torrent \"{t.guid}\" \"{t.enriched_title}\"")
+        result = await test_single_torrent_ai(t.guid, t.enriched_title, t.description or "", temp_config)
+        return {"success": True, "result": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
         
 class PingAIRequest(BaseModel):
     config: AIConfigForm
 
 """
-Lanza un ping de red básico al modelo de lenguaje configurado para medir 
-latencias y verificar que las credenciales funcionan.
+Lanza un ping de red básico al modelo de lenguaje.
 """
 @app.post("/api/ui/ai/ping")
 async def ping_ai_process_endpoint(data: PingAIRequest):
+    api_key_to_use = data.config.api_key
+    if api_key_to_use == "********":
+        with Session(engine) as session:
+            conf = session.exec(select(AIConfig)).first()
+            api_key_to_use = conf.api_key if conf else ""
+    else:
+        api_key_to_use = encrypt_secret(api_key_to_use) if api_key_to_use else ""
+
     temp_config = AIConfig(
         provider=data.config.provider, model_name=data.config.model_name,
-        api_key=data.config.api_key, base_url=data.config.base_url
+        api_key=api_key_to_use, base_url=data.config.base_url
     )
     try:
         result = await test_ai_connection(temp_config)
@@ -837,15 +1009,16 @@ class TVDBConfigForm(BaseModel):
     tvdb_is_enabled: bool = False
 
 """
-Guarda en base de datos la clave API v4 de TheTVDB y el estado de su 
-interruptor maestro.
+Guarda en base de datos la clave API v4 de TheTVDB cifrada y el estado de su 
+interruptor maestro. Ignora la cadena comodín de asteriscos.
 """
 @app.post("/api/ui/system/tvdb")
 async def save_tvdb_config(data: TVDBConfigForm):
     with Session(engine) as session:
         config = session.exec(select(SystemConfig)).first()
         if config:
-            config.tvdb_api_key = data.tvdb_api_key.strip()
+            if data.tvdb_api_key.strip() != "********":
+                config.tvdb_api_key = encrypt_secret(data.tvdb_api_key.strip())
             config.tvdb_is_enabled = data.tvdb_is_enabled
             session.add(config)
             session.commit()
@@ -861,7 +1034,15 @@ la clave provista por el usuario es válida.
 async def test_tvdb_connection(data: TVDBConfigForm):
     logger.info("🌍 Iniciando test de conexión con la API v4 de TheTVDB...")
     clean_key = data.tvdb_api_key.strip()
-    if not clean_key:
+    
+    if clean_key == "********":
+        with Session(engine) as session:
+            config = session.exec(select(SystemConfig)).first()
+            if config and config.tvdb_api_key:
+                clean_key = decrypt_secret(config.tvdb_api_key)
+            else:
+                return {"success": False, "error": "No hay clave guardada para testear."}
+    elif not clean_key:
         return {"success": False, "error": "La clave API proporcionada está vacía."}
         
     url = "https://api4.thetvdb.com/v4/login"
@@ -881,6 +1062,58 @@ async def test_tvdb_connection(data: TVDBConfigForm):
     except httpx.RequestError as exc:
         return {"success": False, "error": f"Error de red interno: {str(exc)}"}
 
+# ==========================================
+# API: SINCRONIZACIÓN CON APLICACIONES ARR
+# ==========================================
+
+class ArrSyncForm(BaseModel):
+    url: str
+    api_key: str
+
+"""
+Recibe las credenciales de una instancia de Sonarr o Radarr, actualiza 
+la configuración del sistema y dispara la sincronización. Soporta cadenas comodín.
+"""
+@app.post("/api/ui/system/sync/{app_type}")
+async def sync_arr_application(app_type: str, data: ArrSyncForm, request: Request):
+    if app_type not in ["sonarr", "radarr"]:
+        return {"success": False, "error": "Tipo de aplicación no soportado."}
+        
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        if not config:
+            return {"success": False, "error": "Configuración del sistema no inicializada."}
+            
+        if data.api_key != "********":
+            real_app_key = data.api_key
+            if app_type == "sonarr":
+                config.sonarr_url = data.url
+                config.sonarr_key = encrypt_secret(real_app_key)
+            else:
+                config.radarr_url = data.url
+                config.radarr_key = encrypt_secret(real_app_key)
+        else:
+            if app_type == "sonarr":
+                config.sonarr_url = data.url
+                real_app_key = decrypt_secret(config.sonarr_key) if config.sonarr_key else ""
+            else:
+                config.radarr_url = data.url
+                real_app_key = decrypt_secret(config.radarr_key) if config.radarr_key else ""
+            
+        session.add(config)
+        session.commit()
+        
+        kitsunarr_url = str(request.base_url).rstrip("/")
+        kitsunarr_api_key = config.api_key
+        
+    try:
+        from services.arr_manager import sync_indexer_to_arr
+        result = await sync_indexer_to_arr(app_type, data.url, real_app_key, kitsunarr_url, kitsunarr_api_key)
+        return {"success": result["success"], "error": result.get("error", "")}
+    except ImportError:
+        return {"success": False, "error": "El servicio de sincronización aún no está implementado."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # ==========================================
 # API: GESTIÓN DE INDEXADORES Y UTILIDADES
@@ -895,7 +1128,7 @@ class IndexerForm(BaseModel):
 """
 Recibe y procesa el formulario de configuración de un indexador desde la interfaz web.
 Si el usuario elige el método 'Auto-Login', intercepta la petición para robar la cookie 
-maestra en tiempo real antes de guardar las credenciales en la base de datos local.
+maestra en tiempo real antes de guardar las credenciales cifradas en la base de datos local.
 Finalmente, ejecuta un test de red para verificar la conectividad de la sesión obtenida.
 """
 @app.post("/api/ui/indexer")
@@ -914,18 +1147,19 @@ async def save_indexer(data: IndexerForm):
             
             if full_cookie_string:
                 indexer.auth_type = "login"
-                indexer.cookie_string = full_cookie_string
+                indexer.cookie_string = encrypt_secret(full_cookie_string)
                 indexer.username = data.username
-                indexer.password = data.password
+                indexer.password = encrypt_secret(data.password)
             else:
                 return {"success": False, "error": "Credenciales incorrectas o el tracker bloqueó la conexión."}
         else:
             indexer.auth_type = "cookie"
-            indexer.cookie_string = data.cookie_string
+            indexer.cookie_string = encrypt_secret(data.cookie_string)
             indexer.username = None
             indexer.password = None
 
-        is_ok = await test_unionfansub_connection(indexer.cookie_string)
+        test_cookie = decrypt_secret(indexer.cookie_string) if indexer.cookie_string else ""
+        is_ok = await test_unionfansub_connection(test_cookie)
         indexer.status = "ok" if is_ok else "error"
         session.commit()
         
@@ -939,7 +1173,7 @@ async def save_indexer(data: IndexerForm):
 
 """
 Fuerza el testeo manual de un indexador ya configurado enviando cabeceras
-completas y devolviendo el resultado de red a la UI.
+completas descifradas y devolviendo el resultado de red a la UI.
 """
 @app.post("/api/ui/indexer/test/{identifier}")
 async def test_existing_indexer(identifier: str):
@@ -951,7 +1185,8 @@ async def test_existing_indexer(identifier: str):
             logger.error(f"❌ Test fallido: El indexador '{identifier}' no está configurado o falta la cookie.")
             return {"success": False, "status": "error"}
         
-        is_ok = await test_unionfansub_connection(indexer.cookie_string)
+        decrypted_cookie = decrypt_secret(indexer.cookie_string)
+        is_ok = await test_unionfansub_connection(decrypted_cookie)
         indexer.status = "ok" if is_ok else "error"
         session.commit()
         
@@ -1005,7 +1240,7 @@ async def proxy_poster(url: str):
         headers["Referer"] = "https://foro.unionfansub.com/"
         with Session(engine) as session:
             indexer = session.exec(select(IndexerConfig).where(IndexerConfig.identifier == "unionfansub")).first()
-            cookie = indexer.cookie_string if indexer and indexer.status == "ok" else ""
+            cookie = decrypt_secret(indexer.cookie_string) if indexer and indexer.status == "ok" and indexer.cookie_string else ""
             if cookie:
                 headers["Cookie"] = cookie
 
@@ -1050,16 +1285,46 @@ async def clear_logs():
 
 """
 Genera un nuevo token hexadecimal aleatorio de 16 bytes para usarlo
-como clave maestra de Torznab.
+como clave maestra de Torznab. Además, si Sonarr o Radarr están configurados,
+sincroniza automáticamente la nueva clave con ellos para no perder la conexión.
 """
 @app.post("/api/ui/system/apikey/regenerate")
-async def regenerate_apikey():
+async def regenerate_apikey(request: Request):
     with Session(engine) as session:
         config = session.exec(select(SystemConfig)).first()
         new_key = secrets.token_hex(16)
         config.api_key = new_key
         session.commit()
-        return {"success": True, "new_key": new_key}
+        
+        kitsunarr_url = str(request.base_url).rstrip("/")
+        sonarr_synced = False
+        radarr_synced = False
+        
+        try:
+            from services.arr_manager import sync_indexer_to_arr
+            from services.encrypt import decrypt_secret
+            
+            if config.sonarr_url and config.sonarr_key:
+                logger.info("🔄 Regeneración de clave: Auto-sincronizando Sonarr...")
+                decrypted_sonarr_key = decrypt_secret(config.sonarr_key)
+                res_sonarr = await sync_indexer_to_arr("sonarr", config.sonarr_url, decrypted_sonarr_key, kitsunarr_url, new_key)
+                sonarr_synced = res_sonarr.get("success", False)
+                
+            if config.radarr_url and config.radarr_key:
+                logger.info("🔄 Regeneración de clave: Auto-sincronizando Radarr...")
+                decrypted_radarr_key = decrypt_secret(config.radarr_key)
+                res_radarr = await sync_indexer_to_arr("radarr", config.radarr_url, decrypted_radarr_key, kitsunarr_url, new_key)
+                radarr_synced = res_radarr.get("success", False)
+                
+        except Exception as e:
+            logger.error(f"❌ Error en auto-sincronización tras regenerar clave: {e}")
+
+        return {
+            "success": True, 
+            "new_key": new_key,
+            "sonarr_synced": sonarr_synced,
+            "radarr_synced": radarr_synced
+        }
 
 """
 Función de detención en crudo. Duerme un segundo y medio para 

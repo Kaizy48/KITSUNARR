@@ -7,8 +7,10 @@ __pycache__/
 env/
 venv/
 
-# Configuración sensible
+# Configuración sensible y Secretos
 .env
+secrets/
+secrets.xml
 
 # Docker / Git
 .git
@@ -19,5 +21,7 @@ docker-compose.yml
 # Datos locales
 data/
 *.db
+*.db-wal
+*.db-shm
 *.log
 *.bak

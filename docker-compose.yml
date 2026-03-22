@@ -9,6 +9,8 @@ services:
       - "${KITSUNARR_PORT}:4080"
     environment:
       - KITSUNARR_DATA_DIR=/app/data
+      - KITSUNARR_SECRETS_DIR=/app/secrets
       - TZ=${TZ}
     volumes:
       - ${KITSUNARR_CONFIG}:/app/data
+      - ${KITSUNARR_CONFIG}:/app/secrets
