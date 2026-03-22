@@ -360,11 +360,12 @@ async function resetPrompt() {
 
 /**
  * Envía la configuración de una aplicación (Sonarr/Radarr) al servidor
- * e intenta realizar la sincronización del indexador.
+ * e intenta realizar la sincronización del indexador usando la URL interna si existe.
  */
 async function syncApp(type) {
     const url = document.getElementById(`${type}_url`).value.trim();
     const key = document.getElementById(`${type}_key`).value.trim();
+    const internalUrl = document.getElementById('kitsunarr_internal_url').value.trim();
     
     if (!url || !key) {
         showToast(`Introduce la URL y API Key de ${type}`, false);
@@ -376,7 +377,7 @@ async function syncApp(type) {
         const res = await fetch(`/api/ui/system/sync/${type}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ url, api_key: key })
+            body: JSON.stringify({ url: url, api_key: key, internal_url: internalUrl })
         });
         const data = await res.json();
         if(data.success) {

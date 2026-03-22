@@ -1069,10 +1069,12 @@ async def test_tvdb_connection(data: TVDBConfigForm):
 class ArrSyncForm(BaseModel):
     url: str
     api_key: str
+    internal_url: str = ""
 
 """
 Recibe las credenciales de una instancia de Sonarr o Radarr, actualiza 
-la configuración del sistema y dispara la sincronización. Soporta cadenas comodín.
+la configuración del sistema y dispara la sincronización. Soporta cadenas comodín
+y sobrescritura de URL interna para redes Docker.
 """
 @app.post("/api/ui/system/sync/{app_type}")
 async def sync_arr_application(app_type: str, data: ArrSyncForm, request: Request):
@@ -1083,6 +1085,8 @@ async def sync_arr_application(app_type: str, data: ArrSyncForm, request: Reques
         config = session.exec(select(SystemConfig)).first()
         if not config:
             return {"success": False, "error": "Configuración del sistema no inicializada."}
+            
+        config.internal_url = data.internal_url.strip() if data.internal_url else None
             
         if data.api_key != "********":
             real_app_key = data.api_key
@@ -1103,7 +1107,12 @@ async def sync_arr_application(app_type: str, data: ArrSyncForm, request: Reques
         session.add(config)
         session.commit()
         
-        kitsunarr_url = str(request.base_url).rstrip("/")
+        if config.internal_url:
+            kitsunarr_url = config.internal_url.rstrip("/")
+            logger.info(f"🌐 Usando URL Interna personalizada para auto-sincronización: {kitsunarr_url}")
+        else:
+            kitsunarr_url = str(request.base_url).rstrip("/")
+            
         kitsunarr_api_key = config.api_key
         
     try:

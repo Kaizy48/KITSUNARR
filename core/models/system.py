@@ -19,6 +19,7 @@ Atributos de Seguridad:
 Atributos de Integración:
 - id: Identificador único fijado a 1 (patrón Singleton).
 - api_key: Clave de seguridad única generada para el protocolo Torznab.
+- internal_url: URL interna para la comunicación entre servicios.
 - tvdb_api_key: (Cifrado) Clave de acceso para la API v4 de TheTVDB.
 - tvdb_token: (Cifrado) Token de sesión JWT para TheTVDB.
 - tvdb_is_enabled: Interruptor para activar la integración con TheTVDB.
@@ -39,6 +40,7 @@ class SystemConfig(SQLModel, table=True):
     
     # Configuración del Sistema y TVDB
     api_key: str = Field(unique=True)
+    internal_url: Optional[str] = Field(default=None)
     tvdb_api_key: Optional[str] = Field(default=None)
     tvdb_token: Optional[str] = Field(default=None)
     tvdb_is_enabled: bool = Field(default=False)
