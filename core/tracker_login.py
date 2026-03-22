@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from core.database import engine
 from core.logger import logger
 from core.models.indexer import IndexerConfig
+from services.encrypt import encrypt_secret, decrypt_secret
 
 
 # ==========================================
@@ -88,7 +89,8 @@ async def attempt_unionfansub_login(username: str, password: str) -> str | None:
 """
 Función de rescate. Consulta la base de datos local en busca 
 de credenciales guardadas bajo el método de 'Auto-Login'. Si las encuentra, 
-intenta renovar la sesión caducada contra el tracker y actualiza la base de datos sin
+intenta renovar la sesión caducada contra el tracker descifrando la contraseña
+y actualiza la base de datos con la nueva cookie cifrada sin
 interrumpir el flujo de las descargas o búsquedas en curso.
 """
 async def auto_renew_cookie() -> str | None:
@@ -98,10 +100,11 @@ async def auto_renew_cookie() -> str | None:
         if indexer and indexer.auth_type == "login" and indexer.username and indexer.password:
             logger.warning("🔄 Cookie caducada detectada. Iniciando Auto-Renovación silenciosa...")
             
-            new_cookie = await attempt_unionfansub_login(indexer.username, indexer.password)
+            decrypted_password = decrypt_secret(indexer.password)
+            new_cookie = await attempt_unionfansub_login(indexer.username, decrypted_password)
             
             if new_cookie:
-                indexer.cookie_string = new_cookie
+                indexer.cookie_string = encrypt_secret(new_cookie)
                 indexer.status = "ok"
                 session.commit()
                 logger.info("✅ Auto-Renovación completada. Resumiendo operaciones...")

@@ -100,3 +100,13 @@ body {
 .k-table td {
     border-bottom: 1px solid #452b7a;
 }
+
+/* ========================================== */
+/* PANTALLAS DE AUTENTICACIÓN (LOGIN/SETUP)   */
+/* ========================================== */
+.auth-panel {
+    background: linear-gradient(145deg, #0a0f18 0%, #05080f 100%);
+    border: 1px solid #1f2937;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+    border-radius: 0.75rem;
+}

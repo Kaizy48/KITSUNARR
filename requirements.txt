@@ -8,3 +8,7 @@ beautifulsoup4
 lxml
 python-multipart
 tvdb_v4_official
+cryptography
+passlib
+argon2-cffi
+PyJWT

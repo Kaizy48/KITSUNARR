@@ -157,11 +157,9 @@ Ejecuta la búsqueda y extracción de datos del tracker principal simulando
 un navegador personalizado de Kitsunarr. Gestiona la caché, extrae metadatos adicionales de cada ficha, 
 y devuelve los resultados en formato XML Torznab o una lista de IDs.
 """
-async def search_unionfansub_html(query: str, cookie_string: str, base_url: str, offset: int = 0, interactivo: bool = False) -> str | list:
+async def search_unionfansub_html(query: str, cookie_string: str, base_url: str, api_key: str, offset: int = 0, interactivo: bool = False) -> str | list:
     search_param = urllib.parse.quote(query) if query else ""
-    
     page_num = offset // 25 if offset > 0 else 0
-    
     categories = "&c1=1&c2=1&c3=1&c9=1&c13=1&c15=1"
     
     url = f"https://torrent.unionfansub.com/browse.php?search={search_param}&incldead=0{categories}&page={page_num}"
@@ -254,7 +252,7 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
                     if not interactivo:
                         torrents_data.append({
                             "title": db_torrent_data["enriched_title"], "guid": f"{torrent_id}_base",
-                            "link": f"{base_url}/api/download/{torrent_id}_base", "size_bytes": size_bytes,
+                            "link": f"{base_url}/api/download/{torrent_id}_base?apikey={api_key}", "size_bytes": size_bytes,
                             "seeders": seeders, "leechers": leechers, "pub_date": pub_date, 
                             "freeleech_until": db_torrent_data["freeleech_until"],
                             "tvdb_id": None, "seasons": []
@@ -263,7 +261,7 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
                         if db_torrent_data["ai_translated_title"] and db_torrent_data["ai_status"] in ["Listo", "Manual"]:
                             torrents_data.append({
                                 "title": db_torrent_data["ai_translated_title"], "guid": f"{torrent_id}_ai",
-                                "link": f"{base_url}/api/download/{torrent_id}_ai", "size_bytes": size_bytes,
+                                "link": f"{base_url}/api/download/{torrent_id}_ai?apikey={api_key}", "size_bytes": size_bytes,
                                 "seeders": seeders, "leechers": leechers, "pub_date": pub_date, 
                                 "freeleech_until": db_torrent_data["freeleech_until"],
                                 "tvdb_id": db_torrent_data["tvdb_id"],
@@ -306,7 +304,7 @@ async def search_unionfansub_html(query: str, cookie_string: str, base_url: str,
                         if not interactivo:
                             torrents_data.append({
                                 "title": enriched_title, "guid": f"{torrent_id}_base",
-                                "link": f"{base_url}/api/download/{torrent_id}_base", "size_bytes": size_bytes,
+                                "link": f"{base_url}/api/download/{torrent_id}_base?apikey={api_key}", "size_bytes": size_bytes,
                                 "seeders": seeders, "leechers": leechers, "pub_date": ficha_data['pub_date'],
                                 "freeleech_until": ficha_data['freeleech_until'],
                                 "tvdb_id": None, "seasons": []

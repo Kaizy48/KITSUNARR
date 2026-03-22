@@ -90,6 +90,10 @@ class TVDBCache(SQLModel, table=True):
 Almacena la información extraída de los trackers y el estado de su 
 procesamiento por la IA y TheTVDB, así como el progreso de descarga.
 """
+"""
+Almacena la información extraída de los trackers y el estado de su 
+procesamiento por la IA y TheTVDB, así como el progreso de descarga y telemetría.
+"""
 class TorrentCache(SQLModel, table=True):
     guid: str = Field(primary_key=True)
     info_hash: Optional[str] = Field(default=None, index=True)
@@ -114,12 +118,20 @@ class TorrentCache(SQLModel, table=True):
     tvdb_id: Optional[str] = Field(default=None, foreign_key="tvdbcache.tvdb_id", index=True)
     tvdb_status: str = Field(default="Pendiente")
 
-    # Estado del Cliente de Descargas
+    # ==================================================
+    # Estado del Cliente de Descargas (Telemetría qBittorrent)
+    # ==================================================
+    exists_in_client: bool = False
     client_status: Optional[str] = "unknown"
+    progress: float = 0.0
+    
+    # Rendimiento y Conectividad
     peers_seeds: int = 0
     peers_leechs: int = 0
-    progress: float = 0.0
-    exists_in_client: bool = False
+    download_speed: int = 0
+    upload_speed: int = 0
+    eta: int = 0
+    ratio: float = 0.0
     
     added_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

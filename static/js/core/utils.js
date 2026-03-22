@@ -1,7 +1,7 @@
 // ==========================================
 // CONSTANTES Y CONFIGURACIÓN
 // ==========================================
-const APP_VERSION = "0.3.1"; 
+const APP_VERSION = "0.4.0"; 
 const GITHUB_REPO = "Kaizy48/KITSUNARR"; 
 
 
@@ -116,5 +116,58 @@ function closeVersionModal() {
             modal.classList.add('hidden');
             localStorage.setItem('kitsunarr_version', APP_VERSION);
         }, 300);
+    }
+}
+
+// ==========================================
+// MENÚ DE USUARIO Y SESIÓN (INTERFAZ BASE)
+// ==========================================
+
+function toggleUserMenu() {
+    const menu = document.getElementById('userMenu');
+    const arrow = document.getElementById('userMenuArrow');
+    
+    if (menu.classList.contains('hidden')) {
+        menu.classList.remove('hidden');
+        setTimeout(() => {
+            menu.classList.remove('scale-95', 'opacity-0');
+            menu.classList.add('scale-100', 'opacity-100');
+        }, 10);
+        arrow.classList.add('rotate-180');
+    } else {
+        menu.classList.remove('scale-100', 'opacity-100');
+        menu.classList.add('scale-95', 'opacity-0');
+        arrow.classList.remove('rotate-180');
+        setTimeout(() => {
+            menu.classList.add('hidden');
+        }, 200);
+    }
+}
+
+window.addEventListener('click', function(e) {
+    const menu = document.getElementById('userMenu');
+    const button = e.target.closest('button');
+    const isButtonClick = button && button.getAttribute('onclick') && button.getAttribute('onclick').includes('toggleUserMenu');
+    
+    if (menu && !menu.contains(e.target) && !isButtonClick) {
+        if (!menu.classList.contains('hidden')) {
+            toggleUserMenu();
+        }
+    }
+});
+
+async function handleLogout() {
+    try {
+        const res = await fetch('/api/ui/auth/logout', { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.success) {
+            window.location.href = '/login';
+        } else {
+            alert("Error al intentar cerrar sesión.");
+        }
+    } catch (err) {
+        console.error("Error de red:", err);
+        alert("Error conectando con el servidor.");
     }
 }

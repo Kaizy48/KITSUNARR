@@ -17,6 +17,18 @@
 
 ---
 
+######### 🔐 SEGURIDAD Y CRIPTOGRAFÍA 🛡️ #########
+
+* **Base de Datos Blindada**: Cifrado simétrico AES-256 (Fernet) nativo para proteger contraseñas, cookies de sesión y API Keys.
+* **Hashing Avanzado**: Contraseñas de administrador protegidas mediante el algoritmo irreversible Argon2.
+* **Descifrado en Memoria RAM**: Los motores de IA, Scrapers y TVDB descifran las credenciales al vuelo únicamente en la memoria RAM durante la ejecución.
+* **Enmascaramiento UI**: La interfaz gráfica oculta automáticamente los campos sensibles (`********`) para evitar exposiciones accidentales.
+
+######### 🔄 ECOSISTEMA Y SINCRONIZACIÓN ARR 🌐 #########
+
+* **Auto-Sincronización**: Al generar tu Clave API maestra, Kitsunarr auto-configura o actualiza su indexador Torznab en tus instancias de Sonarr y Radarr de forma automática.
+* **Soporte para Redes Docker**: Nuevo parámetro de "URL Interna" para permitir la comunicación directa en configuraciones con Proxies Inversos o redes cerradas.
+
 ######### 📡 INDEXADORES Y SCRAPING 🔍 #########
 
 * **Compatibilidad Nativa**: Scraper optimizado con soporte para navegación interactiva y RSS.
@@ -33,7 +45,7 @@
 
 ######### 📺 INTEGRACIÓN CON THETVDB (v4) 🇯🇵 #########
 
-* **Jerarquía Romaji/Latino**: Sistema de nombres inteligente que prioriza la pronunciación japonesa en letras latinas para una identificación rápida (ej: *Saihate no Paladin* antes que *El paladín lejano*).
+* **Jerarquía Romaji/Latino**: Sistema de nombres inteligente que prioriza la pronunciación japonesa en letras latinas para una identificación rápida.
 * **Enciclopedia Local**: Descarga y almacena sinopsis traducidas, pósters de alta calidad y estados de emisión.
 * **Sincronización de Episodios**: Obtiene listas completas de capítulos con títulos traducidos y formateados bajo el estándar `SxxExx - Nombre`.
 * **Omnibox con Alias**: Buscador inteligente que detecta coincidencias incluso por nombres alternativos de las series.
@@ -67,7 +79,7 @@
 
 ### 🐳 Instalación con Docker
 
-La forma recomendada de ejecutar Kitsunarr es mediante docker.
+La forma recomendada de ejecutar Kitsunarr es mediante Docker.
 
 #### 1. Preparar el archivo `.env`
 Copia el contenido de `.env.example` a un nuevo archivo llamado `.env` y ajusta tus valores:
@@ -76,8 +88,9 @@ Copia el contenido de `.env.example` a un nuevo archivo llamado `.env` y ajusta 
 # Puerto en el que accederás desde tu navegador
 KITSUNARR_PORT=4080
 
-# Ruta donde se guardará la base de datos
-KITSUNARR_CONFIG=./data
+# Ruta donde se guardará la base de datos y la llave maestra de cifrado
+KITSUNARR_DATA=/mnt/...
+KITSUNARR_SECRETS=/mnt/...
 
 # Zona horaria
 TZ=Europe/Madrid
@@ -95,10 +108,10 @@ services:
     ports:
       - "${KITSUNARR_PORT}:4080"
     environment:
-      - KITSUNARR_DATA_DIR=/app/data
       - TZ=${TZ}
     volumes:
-      - ${KITSUNARR_CONFIG}:/app/data
+      - ${KITSUNARR_DATA}:/app/data
+      - ${KITSUNARR_SECRETS}:/app/secrets
 ```
 
 ---

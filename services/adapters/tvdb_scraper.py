@@ -13,6 +13,7 @@ from core.database import engine
 from core.logger import logger
 from core.models.system import SystemConfig
 from core.models.torrent import TorrentCache, TorrentTVDBCandidates, TVDBCache, TVDBEpisodes
+from services.encrypt import decrypt_secret
 
 
 # ==========================================
@@ -82,7 +83,7 @@ def _tvdb_get_episodes_page_default(api_key: str, tvdb_id: str, page: int):
 
 """
 Trabajador de fondo que busca torrents recién añadidos y consulta TheTVDB 
-para encontrar posibles coincidencias (candidatos). Guarda los resultados parciales 
+descifrando la API Key para encontrar posibles coincidencias (candidatos). Guarda los resultados parciales 
 en la base de datos para que la IA los evalúe posteriormente.
 """
 async def process_pending_tvdb():
@@ -92,7 +93,7 @@ async def process_pending_tvdb():
     with Session(engine) as session:
         config = session.exec(select(SystemConfig)).first()
         if not config or not config.tvdb_is_enabled or not config.tvdb_api_key: return
-        tvdb_api_key = config.tvdb_api_key
+        tvdb_api_key = decrypt_secret(config.tvdb_api_key)
 
         pending_torrents = session.exec(
             select(TorrentCache).where(TorrentCache.tvdb_status == "Pendiente").limit(5)
@@ -214,22 +215,24 @@ async def process_pending_tvdb():
 # ==========================================
 
 """
-Descarga la información completa (Ficha Maestra) de una serie en TheTVDB, 
+Descarga la información completa (Ficha Maestra) de una serie en TheTVDB descifrando su API Key, 
 incluyendo pósters, estado, fechas de emisión y traducciones, y la persiste 
 definitivamente en la base de datos local.
 """
 async def fetch_full_tvdb_series(tvdb_id: str, config: SystemConfig):
     if not config.tvdb_api_key: return
+    tvdb_api_key = decrypt_secret(config.tvdb_api_key)
+    
     logger.info(f"⏳ [TVDB] Construyendo Ficha Maestra para el ID {tvdb_id}...")
     try:
-        data = await asyncio.to_thread(_tvdb_get_extended, config.tvdb_api_key, tvdb_id)
+        data = await asyncio.to_thread(_tvdb_get_extended, tvdb_api_key, tvdb_id)
         if not data: 
             logger.error(f"❌ [TVDB] La API no devolvió datos extendidos para el ID {tvdb_id}.")
             return
             
-        try: translation_spa = await asyncio.to_thread(_tvdb_get_translations, config.tvdb_api_key, tvdb_id, "spa")
+        try: translation_spa = await asyncio.to_thread(_tvdb_get_translations, tvdb_api_key, tvdb_id, "spa")
         except: translation_spa = {}
-        try: translation_eng = await asyncio.to_thread(_tvdb_get_translations, config.tvdb_api_key, tvdb_id, "eng")
+        try: translation_eng = await asyncio.to_thread(_tvdb_get_translations, tvdb_api_key, tvdb_id, "eng")
         except: translation_eng = {}
 
         name_es = translation_eng.get("name") or translation_spa.get("name") or data.get("name", "Desconocido")
@@ -286,11 +289,12 @@ async def fetch_full_tvdb_series(tvdb_id: str, config: SystemConfig):
 
 """
 Itera sobre todas las páginas de la API de TheTVDB para descargar la lista completa 
-de episodios de una serie. Combina metadatos en español e inglés para asegurar 
+de episodios de una serie descifrando la clave de seguridad previamente. Combina metadatos en español e inglés para asegurar 
 el mejor formato de renombrado (SxxEyy - Título).
 """
 async def fetch_tvdb_episodes(tvdb_id: str, config: SystemConfig):
     if not config.tvdb_api_key: return
+    tvdb_api_key = decrypt_secret(config.tvdb_api_key)
     
     logger.info(f"📥 [TVDB] Iniciando descarga de episodios para ID {tvdb_id}...")
     try:
@@ -305,11 +309,11 @@ async def fetch_tvdb_episodes(tvdb_id: str, config: SystemConfig):
         while has_more:
             logger.info(f"⏳ [TVDB] Descargando episodios (Página {page})...")
             
-            try: data_spa = await asyncio.to_thread(_tvdb_get_episodes_page, config.tvdb_api_key, tvdb_id, page, "spa")
+            try: data_spa = await asyncio.to_thread(_tvdb_get_episodes_page, tvdb_api_key, tvdb_id, page, "spa")
             except: data_spa = {}
-            try: data_eng = await asyncio.to_thread(_tvdb_get_episodes_page, config.tvdb_api_key, tvdb_id, page, "eng")
+            try: data_eng = await asyncio.to_thread(_tvdb_get_episodes_page, tvdb_api_key, tvdb_id, page, "eng")
             except: data_eng = {}
-            try: data_orig = await asyncio.to_thread(_tvdb_get_episodes_page_default, config.tvdb_api_key, tvdb_id, page)
+            try: data_orig = await asyncio.to_thread(_tvdb_get_episodes_page_default, tvdb_api_key, tvdb_id, page)
             except: data_orig = {}
                 
             episodes_spa = data_spa.get("episodes", []) if data_spa else []

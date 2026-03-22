@@ -24,23 +24,31 @@ function openRestartModal() {
 
 /**
  * Llama al backend para regenerar una nueva Clave API de Torznab.
+ * Dispara la auto-sincronización con Sonarr/Radarr en segundo plano.
  * Opcionalmente, envía una señal de reinicio forzado a Uvicorn si se requiere.
  */
 async function executeRegenerate(restart) {
     try {
         const res = await fetch('/api/ui/system/apikey/regenerate', { method: 'POST' });
         const data = await res.json();
+        
         if (data.success) {
-            showToast("Clave generada. " + (restart ? "Reiniciando..." : "Actualiza la vista."));
+            let msg = "Clave generada correctamente.";
+            if (data.sonarr_synced) msg += " Sonarr auto-actualizado.";
+            if (data.radarr_synced) msg += " Radarr auto-actualizado.";
+            
+            showToast(msg);
+            
             if (restart) {
+                setTimeout(() => showToast("Reiniciando el servidor..."), 1000);
                 await fetch('/api/ui/system/restart', { method: 'POST' });
                 setTimeout(() => window.location.reload(), 3000);
             } else {
-                window.location.reload();
+                setTimeout(() => window.location.reload(), 2000);
             }
         }
     } catch (e) {
-        showToast("Error de red.", false);
+        showToast("Error de red al intentar regenerar la clave.", false);
     }
 }
 
@@ -344,4 +352,38 @@ async function resetPrompt() {
     if(!confirm("¿Borrar tu prompt y volver a usar el de fábrica?")) return;
     document.getElementById('custom_prompt_textarea').value = "";
     await saveCustomPrompt();
+}
+
+// ==========================================
+// CONEXIÓN Y SINCRONIZACIÓN DE APLICACIONES (SONARR/RADARR)
+// ==========================================
+
+/**
+ * Envía la configuración de una aplicación (Sonarr/Radarr) al servidor
+ * e intenta realizar la sincronización del indexador usando la URL interna si existe.
+ */
+async function syncApp(type) {
+    const url = document.getElementById(`${type}_url`).value.trim();
+    const key = document.getElementById(`${type}_key`).value.trim();
+    const internalUrl = document.getElementById('kitsunarr_internal_url').value.trim();
+    
+    if (!url || !key) {
+        showToast(`Introduce la URL y API Key de ${type}`, false);
+        return;
+    }
+
+    showToast(`Sincronizando con ${type}...`);
+    try {
+        const res = await fetch(`/api/ui/system/sync/${type}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url: url, api_key: key, internal_url: internalUrl })
+        });
+        const data = await res.json();
+        if(data.success) {
+            showToast(`${type.charAt(0).toUpperCase() + type.slice(1)} sincronizado correctamente.`);
+        } else {
+            showToast(`Error: ${data.error}`, false);
+        }
+    } catch (e) { showToast("Error de red", false); }
 }

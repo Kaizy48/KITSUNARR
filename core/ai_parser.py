@@ -14,6 +14,7 @@ from core.database import engine
 from core.models.system import AIConfig, SystemConfig
 from core.models.torrent import TorrentCache, TVDBCache, TorrentTVDBCandidates
 from services.adapters.tvdb_scraper import fetch_full_tvdb_series, fetch_tvdb_episodes 
+from services.encrypt import decrypt_secret
 
 # Variables globales en memoria RAM (Circuit Breaker)
 _ai_sleep_until = None
@@ -345,17 +346,19 @@ def _clean_and_parse_json(raw_text: str) -> dict:
 """
 Cliente HTTP multiproveedor para las peticiones de Inteligencia Artificial.
 Construye la solicitud HTTP (URL, cabeceras, payload) con la estructura específica 
-requerida por cada API soportada (Gemini, OpenAI, Ollama) y extrae el texto resultante.
+requerida por cada API soportada (Gemini, OpenAI, Ollama) descifrando previamente
+la API Key y extrae el texto resultante.
 """
 async def call_ai_provider(prompt: str, config: AIConfig) -> str:
     timeout = httpx.Timeout(45.0, connect=10.0)
+    decrypted_api_key = decrypt_secret(config.api_key) if config.api_key else ""
     
     async with httpx.AsyncClient(timeout=timeout) as client:
         if config.provider == "gemini":
             model_clean = config.model_name.strip().replace("models/", "")
             
             url = f"https://generativelanguage.googleapis.com/v1/models/{model_clean}:generateContent"
-            params = {"key": config.api_key.strip()}
+            params = {"key": decrypted_api_key.strip()}
             
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}]
@@ -372,7 +375,7 @@ async def call_ai_provider(prompt: str, config: AIConfig) -> str:
         elif config.provider == "openai":
             url = "https://api.openai.com/v1/chat/completions"
             headers = {
-                "Authorization": f"Bearer {config.api_key.strip()}",
+                "Authorization": f"Bearer {decrypted_api_key.strip()}",
                 "Content-Type": "application/json"
             }
             payload = {

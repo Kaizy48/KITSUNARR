@@ -1,12 +1,6 @@
 {# ========================================== #}
 {# LAYOUT PRINCIPAL (BASE.HTML)               #}
 {# ========================================== #}
-{#
-    Plantilla maestra que envuelve a todas las demás vistas de la aplicación.
-    Define la estructura global del documento (Head, Meta tags, importación de Tailwind CSS y FontAwesome).
-    Contiene la barra de navegación lateral (Sidebar) y el contenedor principal
-    donde se inyectan dinámicamente los bloques de contenido de cada página.
-#}
 <!doctype html>
 <html lang="es">
   <head>
@@ -18,21 +12,22 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}"/>
     <link rel="icon" type="image/png" href="{{ url_for('static', path='img/Kitsunarr-logo-32x32.png') }}" />
   </head>
-  <body class="flex h-screen overflow-hidden bg-[#0d0415]">
-    
+  <body class="flex h-screen overflow-hidden bg-[#0d0415] relative">
+
     <div id="toast-container" class="fixed top-5 left-1/2 transform -translate-x-1/2 z-[100] flex flex-col items-center space-y-2 pointer-events-none"></div>
 
-    <aside class="w-64 k-panel flex flex-col rounded-none border-y-0 border-l-0 overflow-y-auto custom-scrollbar shrink-0">
+    <aside class="w-64 k-panel flex flex-col rounded-none border-y-0 border-l-0 overflow-visible shrink-0 z-20">
+      
       <div class="flex flex-col px-4 pt-4 border-b shrink-0 bg-black/20" style="border-color: #452b7a">
         <img src="{{ url_for('static', path='img/Kitsunarr-logo-512x512.png') }}" alt="Kitsunarr Master Logo" class="w-full h-auto rounded-xl shadow-2xl border-2 border-yellow-500/40 object-cover aspect-square transition-all duration-300 hover:shadow-[0_0_20px_rgba(255,215,0,0.5)]">
         <span class="text-2xl font-extrabold tracking-widest text-white mt-5 mb-3 text-center uppercase">
             <span class="text-yellow-400">K</span>ITSU<span class="text-yellow-400">N</span>ARR
         </span>
       </div>
-      
-      <nav class="flex-1 mt-6">
-        <div class="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-          
+
+      <nav class="flex-1 mt-6 overflow-y-auto custom-scrollbar">
+        <div class="py-4 space-y-1">
+
           <div class="px-6 mb-2 text-[10px] font-bold text-purple-500 uppercase tracking-widest">INICIO</div>
           <a href="/" class="flex items-center px-6 py-2.5 transition {% if active_page == 'indexers' %}bg-yellow-500/10 border-r-4 border-yellow-500 text-yellow-500 font-bold{% else %}text-gray-400 hover:text-white{% endif %}">
             <i class="fa-solid fa-play w-6 text-center"></i> Indexadores
@@ -66,12 +61,27 @@
           <a href="/eventos" class="flex items-center px-6 py-2.5 transition {% if active_page == 'events' %}bg-yellow-500/10 border-r-4 border-yellow-500 text-yellow-500 font-bold{% else %}text-gray-400 hover:text-white{% endif %}">
             <i class="fa-solid fa-terminal w-6 text-center"></i> Eventos
           </a>
-          
+
         </div>
       </nav>
+
+      <div class="border-t shrink-0 bg-[#0a0f18] relative" style="border-color: #452b7a">
+          <button onclick="toggleUserMenu()" class="w-full flex items-center space-x-3 p-4 hover:bg-black/40 transition-colors text-gray-400 hover:text-white outline-none">
+              <i class="fa-solid fa-circle-user text-2xl text-yellow-500"></i>
+              <span class="text-sm font-bold tracking-wide">Administrador</span>
+              <i class="fa-solid fa-chevron-up text-xs ml-auto transition-transform duration-300" id="userMenuArrow"></i>
+          </button>
+
+          <div id="userMenu" class="hidden absolute bottom-full left-4 right-4 mb-2 bg-[#0d0415] border border-gray-700 rounded-lg shadow-2xl overflow-hidden z-50 transform scale-95 opacity-0 transition-all duration-200">
+              <button onclick="handleLogout()" class="w-full flex items-center space-x-3 p-3 text-sm text-red-400 hover:bg-red-900/30 transition-colors text-left font-bold group">
+                  <i class="fa-solid fa-right-from-bracket group-hover:translate-x-1 transition-transform"></i>
+                  <span>Cerrar Sesión</span>
+              </button>
+          </div>
+      </div>
     </aside>
 
-    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative z-10">
       <header class="h-16 k-panel rounded-none border-y-0 border-r-0 border-l-0 flex items-center justify-between px-8 border-b shrink-0" style="border-color: #452b7a">
         <h1 class="text-xl font-bold text-white tracking-wide uppercase">{% block header_title %}DASHBOARD{% endblock %}</h1>
       </header>
