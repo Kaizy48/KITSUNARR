@@ -1295,7 +1295,7 @@ async def clear_logs():
 """
 Genera un nuevo token hexadecimal aleatorio de 16 bytes para usarlo
 como clave maestra de Torznab. Además, si Sonarr o Radarr están configurados,
-sincroniza automáticamente la nueva clave con ellos para no perder la conexión.
+sincroniza automáticamente la nueva clave con ellos respetando la URL interna si existe.
 """
 @app.post("/api/ui/system/apikey/regenerate")
 async def regenerate_apikey(request: Request):
@@ -1305,7 +1305,11 @@ async def regenerate_apikey(request: Request):
         config.api_key = new_key
         session.commit()
         
-        kitsunarr_url = str(request.base_url).rstrip("/")
+        if config.internal_url:
+            kitsunarr_url = config.internal_url.rstrip("/")
+        else:
+            kitsunarr_url = str(request.base_url).rstrip("/")
+            
         sonarr_synced = False
         radarr_synced = False
         
