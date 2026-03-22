@@ -8,11 +8,17 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Base de datos local
+# Base de datos local y temporales WAL
 data/
 *.sqlite
 *.db
+*.db-wal
+*.db-shm
 .DS_Store
+
+# Credenciales y Secretos
+secrets/
+secrets.xml
 
 # IDEs
 .vscode/
