@@ -387,3 +387,83 @@ async function syncApp(type) {
         }
     } catch (e) { showToast("Error de red", false); }
 }
+
+// ==========================================
+// CONFIGURACIÓN DE QBITTORRENT
+// ==========================================
+
+/**
+ * Envía las credenciales de qBittorrent al servidor para guardarlas.
+ */
+async function saveQbittorrent() {
+    const url = document.getElementById('qbittorrent_url').value.trim();
+    const user = document.getElementById('qbittorrent_user').value.trim();
+    const pass = document.getElementById('qbittorrent_password').value.trim();
+    
+    const btn = document.getElementById('btn_save_qb');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Guardando...'; 
+    btn.disabled = true;
+
+    try {
+        const res = await fetch('/api/ui/system/qbittorrent', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ qbittorrent_url: url, qbittorrent_user: user, qbittorrent_password: pass })
+        });
+        const data = await res.json();
+        
+        if(data.success) {
+            showToast("Configuración de qBittorrent guardada.");
+            btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Guardado';
+            setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 2000);
+        } else {
+            showToast(data.error, false);
+            btn.innerHTML = originalText; 
+            btn.disabled = false;
+        }
+    } catch (e) { 
+        showToast("Error de red", false); 
+        btn.innerHTML = originalText; 
+        btn.disabled = false; 
+    }
+}
+
+/**
+ * Hace una petición a qBittorrent con las credenciales introducidas para verificar el login.
+ */
+async function testQbittorrent() {
+    const url = document.getElementById('qbittorrent_url').value.trim();
+    const user = document.getElementById('qbittorrent_user').value.trim();
+    const pass = document.getElementById('qbittorrent_password').value.trim();
+    
+    if (!url || !user || !pass) {
+        showToast("Rellena todos los campos para probar la conexión.", false);
+        return;
+    }
+
+    const btn = document.getElementById('btn_test_qb');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-blue-400"></i>'; 
+    btn.disabled = true;
+
+    try {
+        const res = await fetch('/api/ui/system/qbittorrent/test', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ qbittorrent_url: url, qbittorrent_user: user, qbittorrent_password: pass })
+        });
+        const data = await res.json();
+        
+        if(data.success) {
+            showToast("¡Conexión exitosa con qBittorrent!");
+        } else {
+            showToast(`Error: ${data.error}`, false);
+        }
+    } catch (e) { 
+        showToast("Error interno de red", false); 
+    } finally {
+        btn.innerHTML = originalText; 
+        btn.disabled = false;
+    }
+}

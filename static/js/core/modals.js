@@ -2,6 +2,9 @@
 // GESTIÓN DE MODALES GENÉRICOS
 // ==========================================
 
+// Variable global para controlar el bucle de telemetría de qBittorrent
+window.currentTelemetryInterval = null;
+
 /**
  * Oculta todos los modales genéricos y de configuración de la interfaz 
  * añadiendo la clase 'hidden' de Tailwind.
@@ -16,8 +19,14 @@ function closeModals() {
 
 /**
  * Oculta específicamente el modal de Información Dual (Tracker/TVDB).
+ * DETIENE el bucle de telemetría para no saturar al servidor y qBittorrent.
  */
 function closeInfoModal() {
+    if (window.currentTelemetryInterval) {
+        clearInterval(window.currentTelemetryInterval);
+        window.currentTelemetryInterval = null;
+    }
+    
     const el = document.getElementById('infoCacheModal');
     if (el) el.classList.add('hidden');
 }
@@ -78,11 +87,16 @@ function switchInfoTab(tabName) {
 
 /**
  * Recibe un objeto torrent completo, inyecta todos sus datos técnicos, estados de IA 
- * y de TheTVDB en el DOM del modal de Ficha Dual, y finalmente lo muestra en pantalla.
+ * y de TheTVDB en el DOM del modal de Ficha Dual, e inicia la telemetría en vivo.
  */
 function populateAndOpenDualModal(torrentObj) {
     window.currentActiveTorrent = torrentObj;
     if (!torrentObj) return;
+
+    if (window.currentTelemetryInterval) {
+        clearInterval(window.currentTelemetryInterval);
+        window.currentTelemetryInterval = null;
+    }
 
     document.getElementById('info_original_title').innerText = torrentObj.original_title || '-';
     document.getElementById('info_enriched_title').innerText = torrentObj.enriched_title || '-';
@@ -145,6 +159,35 @@ function populateAndOpenDualModal(torrentObj) {
         placeholder.classList.add('hidden');
     }
 
+    // =======================================================
+    // 2. CONFIGURACIÓN DE TELEMETRÍA (qBittorrent)
+    // =======================================================
+    const telemetryContainer = document.getElementById('telemetry_container');
+    const telemetryMissing = document.getElementById('telemetry_missing');
+    const btnCalcHash = document.getElementById('btn_calc_hash');
+    
+    document.getElementById('info_qb_progress_bar').style.width = '0%';
+    document.getElementById('info_qb_progress_text').innerText = '0.0%';
+    document.getElementById('info_qb_dlspeed').innerText = '0 B/s';
+    document.getElementById('info_qb_status').innerText = 'Cargando...';
+    document.getElementById('info_qb_eta').innerText = '-';
+    
+    if (!torrentObj.info_hash) {
+        telemetryContainer.classList.add('hidden');
+        telemetryMissing.classList.remove('hidden');
+        btnCalcHash.classList.remove('hidden');
+    } else {
+        telemetryContainer.classList.remove('hidden');
+        telemetryMissing.classList.add('hidden');
+        btnCalcHash.classList.add('hidden');
+        
+        fetchTelemetryData(torrentObj.guid);
+        window.currentTelemetryInterval = setInterval(() => {
+            fetchTelemetryData(torrentObj.guid);
+        }, 3000);
+    }
+    // =======================================================
+
     switchInfoTab('tracker');
     document.getElementById('infoCacheModal').classList.remove('hidden');
 }
@@ -192,4 +235,130 @@ async function forceSingleTVDBProcess(guid) {
             showToast("Búsqueda en TVDB finalizada. Refresca la vista.");
         } else { showToast(data.error, false); }
     } catch(e) { showToast("Error de red forzando TVDB.", false); }
+}
+
+// ==========================================
+// TELEMETRÍA: QBITTORRENT EN VIVO
+// ==========================================
+
+/**
+ * Hace una petición GET al endpoint de telemetría de Kitsunarr para
+ * obtener el progreso y velocidades actuales desde qBittorrent, y
+ * anima los elementos visuales del modal.
+ */
+async function fetchTelemetryData(guid) {
+    const progressBar = document.getElementById('info_qb_progress_bar');
+    const progressText = document.getElementById('info_qb_progress_text');
+    const speedText = document.getElementById('info_qb_dlspeed');
+    const statusText = document.getElementById('info_qb_status');
+    const etaText = document.getElementById('info_qb_eta');
+    
+    try {
+        const res = await fetch(`/api/ui/torrent/${guid}/telemetry`);
+        const data = await res.json();
+        
+        if (data.success && data.telemetry) {
+            const t = data.telemetry;
+            const percent = (t.progress * 100).toFixed(1);
+            
+            progressBar.style.width = `${percent}%`;
+            progressText.innerText = `${percent}%`;
+            speedText.innerText = `${formatBytes(t.download_speed)}/s`;
+            
+            const stateMap = {
+                'downloading': 'Descargando ⬇️',
+                'stalledDL': 'Estancado (DL)',
+                'stalledUP': 'Sedeando ⬆️',
+                'uploading': 'Subiendo ⬆️',
+                'pausedDL': 'Pausado ⏸️',
+                'pausedUP': 'Completado ⏸️',
+                'queuedDL': 'En Cola',
+                'checkingDL': 'Comprobando',
+                'checkingUP': 'Comprobando',
+                'allocating': 'Asignando Espacio'
+            };
+            statusText.innerText = stateMap[t.client_status] || t.client_status;
+            
+            if (t.eta === 8640000 || t.client_status.includes('paused') || t.client_status.includes('UP')) {
+                etaText.innerText = '∞';
+            } else {
+                etaText.innerText = formatETA(t.eta);
+            }
+            
+            if (t.progress === 1) {
+                progressBar.className = "bg-green-500 h-2 rounded-full transition-all duration-500";
+            } else if (t.client_status.includes('paused')) {
+                progressBar.className = "bg-gray-500 h-2 rounded-full transition-all duration-500";
+            } else {
+                progressBar.className = "bg-blue-500 h-2 rounded-full transition-all duration-500";
+            }
+            
+        } else {
+            statusText.innerText = 'No encontrado en Cliente';
+            progressBar.style.width = '0%';
+            speedText.innerText = '0 B/s';
+            etaText.innerText = '-';
+        }
+    } catch (e) {
+        statusText.innerText = 'Error de Conexión';
+    }
+}
+
+/**
+ * Función que se dispara al pulsar el botón de "Obtener Hash".
+ * Llama al backend para redescargar silenciosamente el torrent,
+ * calcular su hash e iniciar la telemetría automáticamente.
+ */
+async function calculateHash() {
+    const t = window.currentActiveTorrent;
+    if (!t || t.info_hash) return;
+
+    const btn = document.getElementById('btn_calc_hash');
+    const originalHtml = btn.innerHTML;
+    
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Calculando...';
+    btn.disabled = true;
+
+    try {
+        const res = await fetch(`/api/ui/torrent/${t.guid}/calculate_hash`, { method: 'POST' });
+        const data = await res.json();
+        
+        if (data.success) {
+            showToast("¡Hash calculado y vinculado correctamente!");
+            t.info_hash = data.info_hash;
+            
+            document.getElementById('telemetry_container').classList.remove('hidden');
+            document.getElementById('telemetry_missing').classList.add('hidden');
+            btn.classList.add('hidden');
+            
+            fetchTelemetryData(t.guid);
+            window.currentTelemetryInterval = setInterval(() => {
+                fetchTelemetryData(t.guid);
+            }, 3000);
+            
+        } else {
+            showToast(`Error: ${data.error}`, false);
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        }
+    } catch (e) {
+        showToast("Error de red intentando calcular el hash.", false);
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+/**
+ * Helper para formatear los segundos restantes (ETA) a un formato humano (1h 23m).
+ */
+function formatETA(seconds) {
+    if (seconds <= 0) return '0s';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    
+    if (h > 24) return `+${Math.floor(h/24)} días`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
 }

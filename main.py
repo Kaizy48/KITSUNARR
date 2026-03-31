@@ -1,41 +1,44 @@
 # ==========================================
 # IMPORTS Y CONFIGURACIÓN INICIAL
 # ==========================================
-import os
-import time
-import secrets
-import json
-import asyncio
-from datetime import datetime
-from contextlib import asynccontextmanager
-import jwt
-from fastapi.responses import RedirectResponse
 
+import asyncio
+import hashlib
+import json
+import os
+import secrets
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime
+
+import bencodepy
 import httpx
-import uvicorn
-from fastapi import FastAPI, Request, Response, BackgroundTasks, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-from fastapi.encoders import jsonable_encoder
-from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+import jwt
 from dotenv import load_dotenv
-from sqlmodel import Session, select, delete
 from pydantic import BaseModel
+from sqlmodel import Session, delete, select
+from fastapi import BackgroundTasks, File, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from uvicorn import main as uvicorn_main
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 import core.ai_parser as ai_parser
-from core.ai_parser import process_pending_torrents, test_single_torrent_ai, test_ai_connection
-from core.database import engine, create_db_and_tables
-from core.logger import logger, LOG_FILE
+from core.ai_parser import process_pending_torrents, test_ai_connection, test_single_torrent_ai
+from core.database import create_db_and_tables, engine
+from core.logger import LOG_FILE, logger
 from core.models.indexer import IndexerConfig
-from core.models.system import SystemConfig, AIConfig
+from core.models.system import AIConfig, SystemConfig
 from core.models.torrent import TorrentCache, TorrentTVDBCandidates, TVDBCache, TVDBEpisodes
 from core.tracker_login import attempt_unionfansub_login, auto_renew_cookie
+from services.adapters.qbittorrent_api import get_all_unionfansub_torrents, get_torrent_telemetry, qbittorrent_login
+from services.adapters.tvdb_scraper import clean_for_tvdb, fetch_full_tvdb_series, fetch_tvdb_episodes, process_pending_tvdb, _tvdb_search
 from services.adapters.union_scraper import search_unionfansub_html, test_unionfansub_connection
-from services.adapters.tvdb_scraper import process_pending_tvdb, clean_for_tvdb, _tvdb_search, fetch_tvdb_episodes, fetch_full_tvdb_series
-from services.export import export_torrents_only, export_tvdb_only, export_full_bundle, import_relational_data
-from services.encrypt import SECRETS_FILE, encrypt_secret, decrypt_secret
 from services.arr_manager import sync_indexer_to_arr
+from services.encrypt import SECRETS_FILE, decrypt_secret, encrypt_secret
+from services.export import export_full_bundle, export_torrents_only, export_tvdb_only, import_relational_data
 
 load_dotenv()
 
@@ -341,6 +344,70 @@ Renderiza la vista de Búsqueda Interactiva en TheTVDB.
 async def ui_tvdb_search_view(request: Request):
     return templates.TemplateResponse(request=request, name="views/tvdb_search.html", context={})
 
+# ==========================================
+# RUTAS DE VISTA: LABORATORIO DE TORRENTS
+# ==========================================
+
+"""
+Renderiza la vista del Laboratorio de Torrents.
+"""
+@app.get("/torrent_lab")
+async def ui_torrent_lab_view(request: Request):
+    return templates.TemplateResponse(request=request, name="views/torrent_lab.html", context={})
+
+# ==========================================
+# API: LABORATORIO DE TORRENTS
+# ==========================================
+
+"""
+Lista de qBittorrent
+Obtiene todas las descargas vivas del cliente filtradas por UnionFansub.
+"""
+@app.get("/api/ui/qbittorrent/list")
+async def get_qbittorrent_list():
+    with Session(engine) as session:
+        sys_config = session.exec(select(SystemConfig)).first()
+        if not sys_config or not sys_config.qbittorrent_url:
+            return {"success": False, "error": "qBittorrent no está configurado. Ve a Ajustes."}
+        
+        qb_url = sys_config.qbittorrent_url
+        qb_user = sys_config.qbittorrent_user
+        qb_pass = decrypt_secret(sys_config.qbittorrent_password) if sys_config.qbittorrent_password else ""
+
+    try:
+        sid = await qbittorrent_login(qb_url, qb_user, qb_pass)
+        if not sid:
+            return {"success": False, "error": "Credenciales inválidas o cliente inaccesible."}
+            
+        torrents = await get_all_unionfansub_torrents(qb_url, sid)
+        return {"success": True, "torrents": torrents}
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo lista de qBittorrent: {e}")
+        return {"success": False, "error": str(e)}
+
+class TorrentPairForm(BaseModel):
+    guid: str
+    info_hash: str
+
+"""
+Emparejamiento Manual
+Recibe un GUID de Kitsunarr y un Info Hash de qBittorrent, y los vincula permanentemente.
+"""
+@app.post("/api/ui/torrent/pair")
+async def pair_torrent_manual(data: TorrentPairForm):
+    clean_guid = data.guid.replace("_base", "").replace("_ai", "")
+    clean_hash = data.info_hash.strip().lower()
+    
+    with Session(engine) as session:
+        t = session.exec(select(TorrentCache).where(TorrentCache.guid == clean_guid)).first()
+        if not t:
+            return {"success": False, "error": "El torrent no existe en la base de datos local."}
+            
+        t.info_hash = clean_hash
+        session.commit()
+        
+        logger.info(f"🔗 [Laboratorio] Torrent '{t.original_title}' emparejado manualmente con el Hash: {clean_hash}")
+        return {"success": True}
 
 # ==========================================
 # API: PROTOCOLO TORZNAB Y DESCARGAS (INTEGRACIÓN SONARR)
@@ -392,7 +459,8 @@ async def torznab_endpoint(request: Request):
 
 """
 Ruta proxy interna para la descarga de archivos .torrent reales.
-Inyecta la cookie de sesión del indexador para saltar muros de login
+Inyecta la cookie de sesión del indexador para saltar muros de login,
+INTERCEPTA el archivo en memoria RAM para calcular su Hash SHA-1 (Telemetría),
 y devuelve el archivo binario bittorrent original a Sonarr.
 """
 @app.get("/api/download/{guid}")
@@ -444,11 +512,29 @@ async def proxy_download_torrent(guid: str):
                     logger.error("❌ Fallo definitivo: Imposible descargar el torrent tras intento de rescate.")
                     return Response(content="Error: Sesión caducada y sin auto-recuperación.", status_code=502)
 
+            try:
+                torrent_data = bencodepy.decode(resp.content)
+                info_dict = torrent_data[b'info']
+                info_hash = hashlib.sha1(bencodepy.encode(info_dict)).hexdigest()
+                
+                with Session(engine) as db_session:
+                    t = db_session.exec(select(TorrentCache).where(TorrentCache.guid == clean_guid)).first()
+                    if t and not t.info_hash:
+                        t.info_hash = info_hash
+                        db_session.add(t)
+                        db_session.commit()
+                        logger.info(f"🔗 Hash capturado 'en vuelo' exitosamente para {clean_guid}: {info_hash}")
+                        
+            except Exception as hash_error:
+                logger.error(f"⚠️ Error calculando hash para {clean_guid}: {hash_error}")
+
+            
             return Response(
                 content=resp.content, 
                 media_type="application/x-bittorrent",
                 headers={"Content-Disposition": f'attachment; filename="{guid}.torrent"'}
             )
+            
     except Exception as e:
         logger.error(f"❌ Error descargando torrent {guid}: {e}")
         return Response(content="Error descargando torrent", status_code=502)
@@ -1365,6 +1451,161 @@ async def get_system_status():
     with Session(engine) as session:
         sys = session.exec(select(SystemConfig)).first()
         return {"tvdb_is_enabled": sys.tvdb_is_enabled if sys else False}
+    
+# ==========================================
+# API: TELEMETRÍA Y QBITTORRENT
+# ==========================================
+
+"""
+Endpoint de Telemetría Bajo Demanda.
+Consulta en tiempo real el estado de un torrent en qBittorrent usando su info_hash.
+"""
+@app.get("/api/ui/torrent/{guid}/telemetry")
+async def get_live_telemetry(guid: str):
+    clean_guid = guid.replace("_base", "").replace("_ai", "")
+    
+    with Session(engine) as session:
+        t = session.exec(select(TorrentCache).where(TorrentCache.guid == clean_guid)).first()
+        sys_config = session.exec(select(SystemConfig)).first()
+        
+        if not t:
+            return {"success": False, "error": "Torrent no encontrado en BD."}
+            
+        if not t.info_hash:
+            return {"success": False, "error": "Falta Info Hash. Pulsa 'Calcular Hash' primero."}
+            
+        if not sys_config or not sys_config.qbittorrent_url:
+            return {"success": False, "error": "qBittorrent no está configurado."}
+        
+        qb_url = sys_config.qbittorrent_url
+        qb_user = sys_config.qbittorrent_user
+        qb_pass = decrypt_secret(sys_config.qbittorrent_password) if sys_config.qbittorrent_password else ""
+        
+    sid = await qbittorrent_login(qb_url, qb_user, qb_pass)
+    if not sid:
+        return {"success": False, "error": "Fallo de autenticación con qBittorrent."}
+        
+    telemetry_data = await get_torrent_telemetry(qb_url, sid, t.info_hash)
+    
+    if telemetry_data:
+        with Session(engine) as session:
+            t_update = session.exec(select(TorrentCache).where(TorrentCache.guid == clean_guid)).first()
+            if t_update:
+                t_update.exists_in_client = True
+                t_update.client_status = telemetry_data["client_status"]
+                t_update.progress = telemetry_data["progress"]
+                session.commit()
+                
+        return {"success": True, "telemetry": telemetry_data}
+    else:
+        return {"success": False, "error": "El torrent no existe en el cliente de descargas."}
+
+"""
+Auto-Rescate On-Demand (Calcular Hash)
+Descarga temporalmente el archivo .torrent de UnionFansub para una ficha antigua,
+calcula su hash matemático y lo asocia para permitir la telemetría.
+"""
+@app.post("/api/ui/torrent/{guid}/calculate_hash")
+async def force_calculate_hash(guid: str):
+    clean_guid = guid.replace("_base", "").replace("_ai", "")
+    
+    with Session(engine) as session:
+        t = session.exec(select(TorrentCache).where(TorrentCache.guid == clean_guid)).first()
+        if not t:
+            return {"success": False, "error": "Torrent no encontrado en BD."}
+        if t.info_hash:
+            return {"success": True, "info_hash": t.info_hash, "message": "El hash ya existía."}
+            
+        indexer = session.exec(select(IndexerConfig).where(IndexerConfig.identifier == "unionfansub")).first()
+        if not indexer or not indexer.cookie_string:
+            return {"success": False, "error": "Indexador no configurado."}
+            
+        cookie = decrypt_secret(indexer.cookie_string)
+        
+    logger.info(f"⚙️ [Auto-Rescate] Calculando Hash para ficha antigua: {clean_guid}")
+    url = f"https://torrent.unionfansub.com/download.php?torrent={clean_guid}"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/128.0 (Kitsunarr)",
+        "Cookie": cookie
+    }
+    
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, headers=headers, timeout=15.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            
+            if "text/html" in resp.headers.get("Content-Type", ""):
+                return {"success": False, "error": "El tracker denegó la descarga. Comprueba tu sesión."}
+                
+            torrent_data = bencodepy.decode(resp.content)
+            info_hash = hashlib.sha1(bencodepy.encode(torrent_data[b'info'])).hexdigest()
+            
+            with Session(engine) as session:
+                t_update = session.exec(select(TorrentCache).where(TorrentCache.guid == clean_guid)).first()
+                t_update.info_hash = info_hash
+                session.commit()
+                
+            logger.info(f"✅ [Auto-Rescate] Hash vinculado exitosamente: {info_hash}")
+            return {"success": True, "info_hash": info_hash}
+            
+    except Exception as e:
+        logger.error(f"❌ Error en Auto-Rescate para {clean_guid}: {e}")
+        return {"success": False, "error": str(e)}
+
+# ==========================================
+# API: CONFIGURACIÓN QBITTORRENT
+# ==========================================
+
+class QbittorrentConfigForm(BaseModel):
+    qbittorrent_url: str
+    qbittorrent_user: str
+    qbittorrent_password: str
+
+"""
+Guarda las credenciales de qBittorrent en la base de datos.
+La contraseña se cifra automáticamente (y respeta los asteriscos de la UI).
+"""
+@app.post("/api/ui/system/qbittorrent")
+async def save_qbittorrent_config(data: QbittorrentConfigForm):
+    with Session(engine) as session:
+        config = session.exec(select(SystemConfig)).first()
+        if not config:
+            return {"success": False, "error": "Configuración no inicializada."}
+        
+        config.qbittorrent_url = data.qbittorrent_url.strip() if data.qbittorrent_url else None
+        config.qbittorrent_user = data.qbittorrent_user.strip() if data.qbittorrent_user else None
+        
+        if data.qbittorrent_password and data.qbittorrent_password != "********":
+            config.qbittorrent_password = encrypt_secret(data.qbittorrent_password.strip())
+        elif not data.qbittorrent_password:
+            config.qbittorrent_password = None
+            
+        session.add(config)
+        session.commit()
+        logger.info("⚙️ Configuración de qBittorrent guardada localmente.")
+        return {"success": True}
+
+"""
+Prueba la conexión con la WebUI de qBittorrent usando las credenciales proporcionadas.
+"""
+@app.post("/api/ui/system/qbittorrent/test")
+async def test_qbittorrent_connection(data: QbittorrentConfigForm):
+    qb_pass = data.qbittorrent_password.strip()
+    
+    if qb_pass == "********":
+        with Session(engine) as session:
+            config = session.exec(select(SystemConfig)).first()
+            qb_pass = decrypt_secret(config.qbittorrent_password) if config and config.qbittorrent_password else ""
+    
+    try:
+        from services.adapters.qbittorrent_api import qbittorrent_login
+        sid = await qbittorrent_login(data.qbittorrent_url.strip(), data.qbittorrent_user.strip(), qb_pass)
+        if sid:
+            return {"success": True}
+        return {"success": False, "error": "Autenticación fallida o cliente inalcanzable."}
+    except Exception as e:
+        return {"success": False, "error": f"Error de red: {str(e)}"}
 
 if __name__ == "__main__":
     uvicorn.run(
