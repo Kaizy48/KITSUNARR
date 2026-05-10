@@ -1,9 +1,26 @@
-// ==========================================
-// LÓGICA DE LA VISTA: CACHÉ LOCAL
-// ==========================================
+/*
+ * BLOQUE CACHE LOCAL Y ESTADOS TVDB
+ */
 
-/**
- * Consulta el servidor para obtener los últimos 2000 torrents y los renderiza en la galería.
+/*
+ * Funcion para traducir el estado oficial de TVDB a textos visibles en KITSUNARR.
+ */
+function translateTvdbStatus(status) {
+    const map = {
+        Ended: 'Finalizado',
+        Continuing: 'Continua',
+        Planned: 'Planificada',
+        Upcoming: 'Próximamente',
+        InProduction: 'En producción',
+        Pilot: 'Piloto',
+        Rumored: 'Rumoreada',
+        Canceled: 'Cancelada',
+        OnHiatus: 'En pausa'
+    };
+    return map[status] || status || 'Desconocido';
+}
+/*
+ * Funcion de carga de series vinculadas y torrents pendientes desde la cache local.
  */
 async function loadCacheGrid() {
     const grid = document.getElementById('cache-grid');
@@ -14,467 +31,544 @@ async function loadCacheGrid() {
     try {
         const res = await fetch('/api/ui/cache');
         const data = await res.json();
-        window.currentCacheData = data.torrents;
-        renderCacheGrid(window.currentCacheData);
+        
+        window.currentUnlinkedData = data.unlinked_torrents || [];
+        window.currentSeriesData = data.linked_series || [];
+        
+        extractAndRenderGlobalTags(window.currentUnlinkedData);
+        
+        toggleBatchSelection();
+        filterCacheGrid();
     } catch (e) {
         grid.innerHTML = '<div class="col-span-full text-center p-8 text-red-500">Error al cargar la caché.</div>';
     }
 }
 
-/**
- * Pinta las tarjetas (cards) de la caché en el DOM.
+/*
+ * BLOQUE FILTRADO DE TAGS EN CACHE
  */
-function renderCacheGrid(data) {
-    const grid = document.getElementById('cache-grid');
-    if(!grid) return;
-    grid.innerHTML = '';
+
+/*
+ * Funcion para extraer etiquetas disponibles y pintar los filtros globales de la cache.
+ */
+function extractAndRenderGlobalTags(torrents) {
+    const tagsSet = new Set();
     
-    if (data.length === 0) {
-        grid.innerHTML = '<div class="col-span-full text-center p-8 text-gray-500 flex flex-col items-center"><i class="fa-solid fa-box-open text-4xl mb-3"></i><p>La caché está vacía.</p></div>';
+    torrents.forEach(t => {
+        if (t.tags) {
+            try {
+                const parsed = JSON.parse(t.tags);
+                if (Array.isArray(parsed)) parsed.forEach(tag => tagsSet.add(tag));
+            } catch(e) {}
+        }
+    });
+
+    const tagsArray = Array.from(tagsSet).sort(sortTags);
+    const container = document.getElementById('filter_tags_container');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    if (tagsArray.length === 0) {
+        container.innerHTML = '<span class="text-[10px] text-gray-600 italic">No hay etiquetas disponibles</span>';
         return;
     }
 
-    data.forEach(t => {
-        const card = document.createElement('div');
-        card.className = "group flex flex-col relative bg-[#11051c] rounded-lg border border-gray-800 shadow-md hover:border-yellow-500/50 transition-all duration-300";
+    tagsArray.forEach(tag => {
+        const tData = getTagData(tag);
+        const btn = document.createElement('button');
+        btn.className = `px-3 py-1 rounded-full text-[10px] font-bold border transition-all ${tData.style} opacity-50 hover:opacity-100`;
+        btn.innerHTML = `${tData.icon} ${tag}`;
+        btn.onclick = () => toggleTagFilter(tag, btn);
+        container.appendChild(btn);
+    });
+}
+/*
+ * Funcion para activar o desactivar un filtro de etiqueta en la vista de cache.
+ */
+function toggleTagFilter(tag, btnElement) {
+    if (window.activeTagFilters.has(tag)) {
+        window.activeTagFilters.delete(tag);
+        btnElement.classList.remove('opacity-100', 'ring-2', 'ring-white');
+        btnElement.classList.add('opacity-50');
+    } else {
+        window.activeTagFilters.add(tag);
+        btnElement.classList.remove('opacity-50');
+        btnElement.classList.add('opacity-100', 'ring-2', 'ring-white');
+    }
+    filterCacheGrid();
+}
+/*
+ * Funcion para filtrar series y torrents por texto, alias y etiquetas activas.
+ */
+function filterCacheGrid() {
+    const query = document.getElementById('cacheSearch') ? document.getElementById('cacheSearch').value.toLowerCase() : "";
+    
+    const filteredTorrents = window.currentUnlinkedData.filter(t => {
+        const textMatch = t.original_title.toLowerCase().includes(query) || 
+                          t.enriched_title.toLowerCase().includes(query) || 
+                          t.guid.toLowerCase().includes(query);
+                          
+        let tagsMatch = true;
+        if (window.activeTagFilters.size > 0) {
+            if (!t.tags) {
+                tagsMatch = false;
+            } else {
+                try {
+                    const tTags = JSON.parse(t.tags);
+                    for (let activeTag of window.activeTagFilters) {
+                        if (!tTags.includes(activeTag)) {
+                            tagsMatch = false;
+                            break;
+                        }
+                    }
+                } catch(e) {
+                    tagsMatch = false;
+                }
+            }
+        }
         
-        let displayName = "";
-        if (t.tvdb_status === 'Listo' && t.tvdb_series_name_es) {
-            displayName = t.tvdb_series_name_es;
-        } else {
-            displayName = t.enriched_title.replace(/\[.*?\]/g, '').trim();
+        return textMatch && tagsMatch;
+    });
+
+    const filteredSeries = window.currentSeriesData
+        .map(s => {
+            const aliases = extractSeriesAliases(s.aliases);
+            const nameMatch = s.series_name_es?.toLowerCase().includes(query) ||
+                              s.series_name_original?.toLowerCase().includes(query) ||
+                              s.tvdb_id.toLowerCase().includes(query);
+
+            let aliasMatched = false;
+            let matchedAlias = null;
+            if (query) {
+                matchedAlias = aliases.find(a => a.toLowerCase().includes(query)) || null;
+                aliasMatched = Boolean(matchedAlias);
+            }
+
+            return {
+                ...s,
+                _matches_query: !query || nameMatch || aliasMatched,
+                _matched_by_alias: aliasMatched,
+                _matched_alias: matchedAlias,
+            };
+        })
+        .filter(s => s._matches_query);
+
+    renderCacheGrid(filteredTorrents, filteredSeries);
+}
+/*
+ * Funcion para normalizar alias de series TVDB usados en las busquedas de cache.
+ */
+function extractSeriesAliases(rawAliases) {
+    if (!rawAliases) return [];
+
+    if (Array.isArray(rawAliases)) {
+        return rawAliases.map(a => String(a).trim()).filter(Boolean);
+    }
+
+    if (typeof rawAliases === 'string') {
+        try {
+            const parsed = JSON.parse(rawAliases);
+            if (Array.isArray(parsed)) {
+                return parsed.map(a => String(a).trim()).filter(Boolean);
+            }
+        } catch (e) {
+            return rawAliases
+                .split(',')
+                .map(a => a.trim())
+                .filter(Boolean);
+        }
+    }
+
+    return [];
+}
+/*
+ * Funcion de renderizado de etiquetas ordenadas dentro de una tarjeta de torrent.
+ */
+function renderCardTags(tagsJson) {
+    if (!tagsJson) return '<span class="text-[9px] text-gray-700 italic px-1">Sin etiquetas</span>';
+    
+    try {
+        const parsed = JSON.parse(tagsJson);
+        if (!Array.isArray(parsed) || parsed.length === 0) return '<span class="text-[9px] text-gray-700 italic px-1">Sin etiquetas</span>';
+        
+        const sortedTags = parsed.sort(sortTags);
+        
+        return sortedTags.map(tag => {
+            const tData = getTagData(tag);
+            return `
+                <span class="px-1.5 py-0.5 rounded text-[9px] font-bold border ${tData.style} flex items-center shadow-sm" title="${tag}">
+                    <span class="mr-1">${tData.icon}</span> <span>${tag}</span>
+                </span>
+            `;
+        }).join('');
+    } catch (e) {
+        return '<span class="text-[9px] text-red-900/50 italic px-1">Error JSON</span>';
+    }
+}
+
+/*
+ * BLOQUE RENDERIZADO DE CACHE
+ */
+
+/*
+ * Funcion de renderizado de series validadas y torrents huerfanos en la cache local.
+ */
+function renderCacheGrid(torrents, series) {
+    const grid = document.getElementById('cache-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    if (torrents.length === 0 && series.length === 0) {
+        grid.innerHTML = '<div class="col-span-full text-center p-8 text-gray-500">No se encontraron resultados en la caché local.</div>';
+        return;
+    }
+
+    series.forEach(s => {
+        const posterUrl = s.poster_path ? `/api/ui/poster?url=${encodeURIComponent(s.poster_path)}` : '/static/img/Kitsunarr-logo-512x512.png';
+        const fallbackImg = "this.onerror=null; this.src='/static/img/Kitsunarr-logo-512x512.png';";
+
+        let seasonLabel = 'T?';
+        if (s.seasons_data) {
+            try {
+                const seasonsObj = JSON.parse(s.seasons_data);
+                const nums = Object.keys(seasonsObj)
+                    .map(n => parseInt(n, 10))
+                    .filter(n => !Number.isNaN(n))
+                    .sort((a, b) => a - b);
+                if (nums.length) {
+                    const first = nums[0];
+                    const last = nums[nums.length - 1];
+                    const isRange = nums.every((n, idx) => idx === 0 || n === nums[idx - 1] + 1);
+                    seasonLabel = isRange && nums.length > 1 ? `T${first}-T${last}` : `T${nums.join(', T')}`;
+                }
+            } catch (e) {
+                seasonLabel = 'T?';
+            }
         }
 
-        let fansubTag = t.fansub_name ? `[${t.fansub_name}]` : `[UnionFansub]`;
+        const yearLabel = s.first_aired ? String(s.first_aired).slice(0, 4) : '----';
+        const seasonsAndYear = `${seasonLabel} • ${yearLabel}`;
         
-        let iaIcon = '';
-        if (t.ai_status === 'Listo') iaIcon = '<i class="fa-solid fa-circle-check text-green-500" title="IA Lista"></i>';
-        else if (t.ai_status === 'Manual') iaIcon = '<i class="fa-solid fa-user-gear text-blue-400" title="IA Editada Manualmente"></i>';
-        else if (t.ai_status === 'Error') iaIcon = '<i class="fa-solid fa-triangle-exclamation text-red-500" title="Error IA"></i>';
-        else iaIcon = '<i class="fa-solid fa-hourglass-start text-gray-500" title="IA Pendiente"></i>';
+        const isContinuing = s.status === 'Continuing';
+        const isEnded = s.status === 'Ended';
+        const statusColor = isContinuing
+            ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)] animate-pulse'
+            : (isEnded ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]' : 'bg-gray-500');
+        const statusTitle = translateTvdbStatus(s.status);
 
-        let tvdbIcon = '';
-        if (t.tvdb_status === 'Listo') tvdbIcon = '<i class="fa-solid fa-circle-check text-green-500" title="TVDB Validado"></i>';
-        else if (t.tvdb_status === 'Revisión Manual') tvdbIcon = '<i class="fa-solid fa-eye text-orange-400" title="Requiere Revisión Manual"></i>';
-        else if (t.tvdb_status === 'Candidatos') tvdbIcon = '<i class="fa-solid fa-list-check text-purple-400" title="Candidatos Encontrados"></i>';
-        else if (t.tvdb_status === 'Error' || t.tvdb_status === 'No Encontrado') tvdbIcon = '<i class="fa-solid fa-magnifying-glass-question text-red-400" title="No Encontrado"></i>';
-        else tvdbIcon = '<i class="fa-solid fa-hourglass-start text-gray-500" title="TVDB Pendiente"></i>';
-
-        const posterUrl = t.poster_url ? `/api/ui/poster?url=${encodeURIComponent(t.poster_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
-
+        const card = document.createElement('div');
+        card.className = "k-card group relative flex flex-col justify-between overflow-hidden shadow-lg border-2 border-green-500/30 hover:border-green-500/80 transition-all bg-[#0d0415]";
         card.innerHTML = `
-            <div class="relative aspect-[2/3] rounded-t-lg overflow-hidden cursor-pointer bg-black" onclick="openInfoModalFromCache('${t.guid}')">
-                <img src="${posterUrl}" alt="Poster" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 opacity-90 group-hover:opacity-100">
-                <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <i class="fa-solid fa-eye text-3xl text-white"></i>
-                </div>
-                <div class="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <button onclick="event.stopPropagation(); openEditModal('${t.guid}')" class="bg-black/80 hover:bg-yellow-500 text-white p-2 rounded border border-gray-600 transition" title="Editar Manualmente">
-                        <i class="fa-solid fa-pen text-xs"></i>
-                    </button>
-                    <button onclick="event.stopPropagation(); deleteCacheEntry('${t.guid}')" class="bg-black/80 hover:bg-red-500 text-white p-2 rounded border border-gray-600 transition" title="Eliminar">
-                        <i class="fa-solid fa-trash text-xs"></i>
-                    </button>
-                </div>
+            <div class="relative aspect-[2/3] w-full overflow-hidden block bg-[#05080c]">
+                <img src="${posterUrl}" onerror="${fallbackImg}" alt="Poster" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 opacity-90 group-hover:opacity-100">
+
+                <a href="/cache/series/${s.tvdb_id}" class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center z-20 cursor-pointer backdrop-blur-[2px]">
+                    <span class="text-white font-bold bg-green-600/90 px-5 py-2.5 rounded-full shadow-[0_0_15px_rgba(22,163,74,0.5)] transform transition-transform group-hover:scale-110 flex items-center">
+                        <i class="fa-solid fa-book-open mr-2"></i> Ver Serie
+                    </span>
+                </a>
             </div>
-            <div class="p-3 flex flex-col justify-between flex-1">
-                <div>
-                    <div class="text-xs font-bold text-yellow-500 mb-1 truncate">${fansubTag}</div>
-                    <div class="text-white text-sm font-bold line-clamp-2 leading-tight" title="${displayName}">${displayName}</div>
+            
+            <div class="p-3 flex flex-col flex-1 bg-gradient-to-b from-[#0a1a10] to-[#050d08]">
+                
+                <div class="poster-card-title mb-2" title="${s.series_name_es || s.series_name_original}">
+                    ${s.series_name_es || s.series_name_original}
                 </div>
-                <div class="mt-3 flex justify-between items-center border-t border-gray-800 pt-2">
-                    <div class="text-xs text-gray-500 font-mono">${t.guid}</div>
-                    <div class="flex space-x-2 text-base">
-                        ${iaIcon} ${tvdbIcon}
+
+                ${s._matched_by_alias ? `
+                <div class="mb-2 text-[10px] font-bold text-blue-300 bg-blue-900/30 border border-blue-800/60 rounded px-2 py-1 truncate" title="Coincidencia por alias: ${s._matched_alias || ''}">
+                    <i class="fa-solid fa-link mr-1"></i> Coincidencia por alias: ${s._matched_alias || 'Alias'}
+                </div>
+                ` : ''}
+                
+                <div class="flex justify-between items-center mt-auto pt-2 border-t border-green-900/30">
+                    <div class="poster-card-meta text-green-600/70 font-mono bg-green-900/20 px-2 py-0.5 rounded border border-green-900/30 flex-1 mr-2" title="Temporadas y estreno">
+                        <i class="fa-solid fa-layer-group mr-1"></i> ${seasonsAndYear}
+                    </div>
+                    
+                    <div class="flex items-center space-x-2 shrink-0">
+                        <div class="w-2 h-2 rounded-full ${statusColor}" title="${statusTitle}"></div>
+                        <div class="text-[10px] font-bold text-green-400 bg-green-900/40 px-2 py-0.5 rounded shadow-inner" title="Torrents Vinculados">
+                            <i class="fa-solid fa-link mr-1"></i> ${s.linked_torrents_count || 0}
+                        </div>
                     </div>
                 </div>
             </div>
         `;
         grid.appendChild(card);
     });
+
+    torrents.forEach(t => {
+        const isFreeleech = t.freeleech_until && new Date(t.freeleech_until) > new Date();
+        const displayName = getCleanTorrentTitle(t);
+        const posterUrl = t.poster_url ? `/api/ui/poster?url=${encodeURIComponent(t.poster_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
+        const fallbackImg = "this.onerror=null; this.src='/static/img/Kitsunarr-logo-512x512.png';";
+        const fansubName = t.fansub_name || 'TRACKER';
+        
+        let aiIcon = getAiBadge(t);
+        let tvdbIcon = getTvdbBadge(t);
+        let trackerBadge = isFreeleech ? `<div class="absolute top-2 left-2 bg-yellow-500 text-black text-[10px] font-black px-2 py-0.5 rounded shadow-lg z-30 tracking-wider">FREELEECH</div>` : '';
+
+        const card = document.createElement('div');
+        card.className = "k-card group relative flex flex-col justify-between overflow-hidden shadow-lg border border-gray-800 hover:border-yellow-500/50 transition-all bg-[#0d0415]";
+        card.innerHTML = `
+            ${trackerBadge}
+            
+            <div class="absolute top-2 right-2 z-30">
+                <input type="checkbox" class="batch-checkbox w-4 h-4 text-yellow-500 bg-gray-900 border-gray-600 rounded focus:ring-yellow-500 cursor-pointer shadow-md" value="${t.guid}" onclick="toggleBatchSelection()">
+            </div>
+            
+            <div class="relative aspect-[2/3] w-full overflow-hidden block bg-[#05080c]">
+                <img src="${posterUrl}" onerror="${fallbackImg}" alt="Poster" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 opacity-90 group-hover:opacity-100">
+                
+                <div class="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black via-black/80 to-transparent p-2 pt-8 z-20 pointer-events-none">
+                    <div class="text-[10px] font-bold uppercase tracking-widest drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
+                        <div class="mb-1">
+                            <span class="fansub-badge inline-flex items-center rounded-sm bg-yellow-500/15 border border-yellow-500/50 text-yellow-300 font-black tracking-widest">FANSUB</span>
+                        </div>
+                        <div class="fansub-shell inline-block rounded">
+                            <span class="fansub-label text-yellow-300 tracking-widest">${fansubName}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center space-x-6 z-20 backdrop-blur-[2px]">
+                    <a href="/cache/torrent/${t.guid}" title="Ver Ficha" class="text-white hover:text-yellow-500 transition transform hover:scale-125">
+                        <i class="fa-solid fa-eye text-4xl drop-shadow-lg"></i>
+                    </a>
+                    <a href="/cache/edit/${t.guid}" title="Editar Manualmente" class="text-white hover:text-blue-500 transition transform hover:scale-125">
+                        <i class="fa-solid fa-pen text-4xl drop-shadow-lg"></i>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="p-3 flex flex-col flex-1 bg-gradient-to-b from-[#11051c] to-[#0a0310]">
+                
+                <div class="poster-card-title mb-2" title="${displayName}">
+                    ${displayName}
+                </div>
+                
+                <div class="flex justify-between items-center mb-3">
+                    <div class="poster-card-meta text-gray-400 font-mono bg-black/50 px-2 py-0.5 rounded border border-gray-800 shadow-inner flex-1 mr-2" title="ID en el Tracker: ${t.guid}">
+                        <i class="fa-solid fa-fingerprint mr-1"></i> ${t.guid}
+                    </div>
+                    <div class="flex space-x-1.5 text-sm shrink-0 bg-black/30 px-1.5 py-0.5 rounded border border-gray-800">
+                        ${aiIcon} ${tvdbIcon}
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-1 mt-auto pt-3 border-t border-gray-800/60">
+                    ${renderCardTags(t.tags)}
+                </div>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+
+    if (typeof refreshPosterLayouts === 'function') {
+        refreshPosterLayouts();
+    }
+}
+/*
+ * Funcion para devolver el indicador visual del estado de IA de un torrent.
+ */
+function getAiBadge(t) {
+    if (t.ai_status === 'Listo') return '<i class="fa-solid fa-robot text-green-500" title="IA Completada"></i>';
+    if (t.ai_status === 'Manual') return '<i class="fa-solid fa-user-gear text-blue-400" title="IA Editada Manualmente"></i>';
+    if (t.ai_status === 'Error') return '<i class="fa-solid fa-circle-xmark text-red-500" title="Error IA"></i>';
+    return '<i class="fa-solid fa-clock text-gray-500" title="IA Pendiente"></i>';
+}
+/*
+ * Funcion para devolver el indicador visual del estado TVDB de un torrent.
+ */
+function getTvdbBadge(t) {
+    if (t.tvdb_status === 'Listo') return '<i class="fa-solid fa-circle-check text-green-500" title="TVDB Validado"></i>';
+    if (t.tvdb_status === 'Manual' || t.tvdb_status === 'Revisión Manual') return '<i class="fa-solid fa-user-gear text-blue-400" title="TVDB Editado Manualmente / Requiere Revisión"></i>';
+    if (t.tvdb_status === 'Error' || t.tvdb_status === 'No Encontrado') return '<i class="fa-solid fa-circle-xmark text-red-500" title="Error TVDB / No Encontrado"></i>';
+    return '<i class="fa-solid fa-clock text-gray-500" title="TVDB Pendiente"></i>';
 }
 
-/**
- * Filtra los elementos visuales de la caché en el lado del cliente (Frontend).
+/*
+ * BLOQUE ACCIONES MASIVAS DE CACHE
  */
-function filterCacheGrid() {
-    const q = document.getElementById('cacheSearch').value.toLowerCase();
-    const filtered = window.currentCacheData.filter(t => 
-        t.enriched_title.toLowerCase().includes(q) || 
-        t.guid.includes(q) || 
-        (t.ai_translated_title && t.ai_translated_title.toLowerCase().includes(q)) ||
-        (t.fansub_name && t.fansub_name.toLowerCase().includes(q)) ||
-        (t.tvdb_series_name_es && t.tvdb_series_name_es.toLowerCase().includes(q))
+
+/*
+ * Funcion para actualizar los controles de accion masiva segun la seleccion actual.
+ */
+function toggleBatchSelection() {
+    const checked = document.querySelectorAll('.batch-checkbox:checked').length;
+    const btnAi = document.getElementById('btn_batch_ai');
+    const btnDel = document.getElementById('btn_batch_delete');
+    
+    if (checked > 0) {
+        if(btnAi) { btnAi.disabled = false; btnAi.classList.remove('opacity-50', 'cursor-not-allowed'); }
+        if(btnDel) { btnDel.disabled = false; btnDel.classList.remove('opacity-50', 'cursor-not-allowed'); }
+    } else {
+        if(btnAi) { btnAi.disabled = true; btnAi.classList.add('opacity-50', 'cursor-not-allowed'); }
+        if(btnDel) { btnDel.disabled = true; btnDel.classList.add('opacity-50', 'cursor-not-allowed'); }
+    }
+}
+/*
+ * Funcion para confirmar el envio masivo de torrents seleccionados a la IA.
+ */
+async function openBatchModal() {
+    const guids = Array.from(document.querySelectorAll('.batch-checkbox:checked')).map(cb => cb.value);
+    if (guids.length === 0) return showToast("Selecciona al menos un torrent.", false);
+    const accepted = await appConfirm(
+        `¿Enviar ${guids.length} torrent(s) a procesar por la IA ahora mismo?`,
+        'Confirmar procesamiento IA'
     );
-    renderCacheGrid(filtered);
+    if (!accepted) return;
+    processBatchAI();
 }
-
-/**
- * Busca el torrent en la memoria global y abre el modal de Ficha Dual.
+/*
+ * Funcion para solicitar el procesamiento IA de los torrents seleccionados.
  */
-function openInfoModalFromCache(guid) {
-    const t = window.currentCacheData.find(x => x.guid === guid);
-    if(t) populateAndOpenDualModal(t);
-}
-
-
-// ==========================================
-// MODAL DE EDICIÓN Y OMNIBOX TVDB
-// ==========================================
-
-/**
- * Abre el modal de edición manual para corregir el parseo de la IA o asignar
- * manualmente una serie desde TheTVDB.
- */
-async function openEditModal(guid) {
-    const t = window.currentCacheData.find(x => x.guid === guid);
-    if(!t) return;
-    document.getElementById('edit_cache_guid').value = t.guid;
-    document.getElementById('edit_original_title').innerText = t.original_title;
-    document.getElementById('edit_enriched_title').innerText = t.enriched_title;
-    document.getElementById('edit_cache_title').value = t.ai_translated_title || t.enriched_title;
-    document.getElementById('edit_cache_description').value = t.description || '';
+async function processBatchAI() {
+    const guids = Array.from(document.querySelectorAll('.batch-checkbox:checked')).map(cb => cb.value);
+    if(guids.length === 0) return;
     
-    document.getElementById('edit_tvdb_search').value = '';
-    document.getElementById('edit_tvdb_id').value = '';
-    document.getElementById('omnibox_selected_badge').classList.add('hidden');
-    
-    document.getElementById('edit_id_size').innerText = `${t.guid} | ${formatBytes(t.size_bytes)}`;
-    
-    const p = document.getElementById('edit_poster');
-    p.style.backgroundImage = t.poster_url ? `url('/api/ui/poster?url=${encodeURIComponent(t.poster_url)}')` : 'none';
+    showToast(`Enviando ${guids.length} torrents a procesar por IA...`);
     
     try {
-        const resLocal = await fetch('/api/ui/tvdb/local_candidates');
-        const dataLocal = await resLocal.json();
-        if(dataLocal.success) window.currentLocalCandidates = dataLocal.results;
-        
-        const resSpecific = await fetch(`/api/ui/torrent/${guid}/candidates`);
-        const dataSpecific = await resSpecific.json();
-        if(dataSpecific.success) window.currentSpecificCandidates = dataSpecific.results;
-        
-        if (t.tvdb_id) {
-            const existingShow = window.currentLocalCandidates.find(s => s.tvdb_id === t.tvdb_id);
-            if (existingShow) selectOmniboxItem(existingShow.tvdb_id, existingShow.series_name_es);
-            else selectOmniboxItem(t.tvdb_id, `ID: ${t.tvdb_id}`);
-        }
-    } catch(e) { console.error("Error cargando candidatos del Omnibox"); }
-
-    document.getElementById('editCacheModal').classList.remove('hidden');
-}
-
-/**
- * Muestra el desplegable interactivo de búsqueda de TheTVDB en el modal de edición.
- */
-function showOmnibox() { 
-    filterOmnibox();
-    document.getElementById('omnibox_dropdown').classList.remove('hidden'); 
-}
-
-/**
- * Oculta el desplegable con retraso para poder capturar los clics en sus elementos.
- */
-function hideOmniboxDelayed() { 
-    setTimeout(() => { 
-        const d = document.getElementById('omnibox_dropdown');
-        if(d) d.classList.add('hidden'); 
-    }, 200); 
-}
-
-/**
- * Comprueba si el término de búsqueda coincide con alguno de los alias japoneses
- * o ingleses registrados en TheTVDB.
- */
-function getAliasMatch(s, q) {
-    if (!q || !s.aliases) return null;
-    try {
-        const aliasArr = JSON.parse(s.aliases);
-        const matched = aliasArr.find(a => a.toLowerCase().includes(q));
-        if (matched) return matched;
-    } catch(e) {}
-    return null;
-}
-
-/**
- * Filtra los resultados del Omnibox en base al texto, separando entre candidatos 
- * directos para ese torrent y candidatos de la biblioteca local general.
- */
-function filterOmnibox() {
-    const q = document.getElementById('edit_tvdb_search').value.toLowerCase().trim();
-    const dropdown = document.getElementById('omnibox_dropdown');
-    dropdown.innerHTML = '';
-    
-    let hasResults = false;
-
-    const filteredSpecific = window.currentSpecificCandidates.filter(s => {
-        if (!q) return true;
-        s._matchedAlias = getAliasMatch(s, q);
-        return (s.series_name_es && s.series_name_es.toLowerCase().includes(q)) || 
-               (s.tvdb_id && s.tvdb_id.includes(q)) || 
-               s._matchedAlias;
-    });
-
-    if (filteredSpecific.length > 0) {
-        dropdown.innerHTML += `<div class="px-3 py-1 bg-yellow-900/40 text-yellow-500 text-[10px] font-bold uppercase tracking-wider border-b border-yellow-700/50">Candidatos Sugeridos por IA</div>`;
-        filteredSpecific.forEach(s => dropdown.appendChild(createOmniboxItem(s, true)));
-        hasResults = true;
-    }
-
-    const specificIds = window.currentSpecificCandidates.map(s => s.tvdb_id);
-    const filteredLocal = window.currentLocalCandidates.filter(s => {
-        if (specificIds.includes(s.tvdb_id)) return false;
-        if (!q) return false;
-        s._matchedAlias = getAliasMatch(s, q);
-        return (s.series_name_es && s.series_name_es.toLowerCase().includes(q)) || 
-               (s.tvdb_id && s.tvdb_id.includes(q)) ||
-               s._matchedAlias;
-    });
-
-    if (filteredLocal.length > 0) {
-        if (hasResults) dropdown.innerHTML += `<div class="h-1 bg-black border-t border-gray-800"></div>`;
-        dropdown.innerHTML += `<div class="px-3 py-1 bg-blue-900/40 text-blue-400 text-[10px] font-bold uppercase tracking-wider border-b border-blue-800/50">Búsqueda en Biblioteca Local</div>`;
-        filteredLocal.slice(0, 10).forEach(s => dropdown.appendChild(createOmniboxItem(s, false)));
-        hasResults = true;
-    }
-
-    if (/^\d+$/.test(q)) {
-        const manualDiv = document.createElement('div');
-        manualDiv.className = "p-3 bg-gray-800 text-white text-xs font-bold hover:bg-gray-700 cursor-pointer border-t border-gray-600 transition";
-        manualDiv.innerHTML = `<i class="fa-solid fa-cloud-arrow-down mr-2 text-yellow-500"></i> Forzar ID Manual: ${q}`;
-        manualDiv.onclick = () => selectOmniboxItem(q, `ID Forzado: ${q}`);
-        dropdown.appendChild(manualDiv);
-        hasResults = true;
-    }
-
-    if(!hasResults) {
-        dropdown.innerHTML = '<div class="p-3 text-xs text-gray-500 italic text-center">No se encontraron coincidencias.</div>';
-    }
-}
-
-/**
- * Crea el elemento HTML para una opción sugerida en el Omnibox.
- */
-function createOmniboxItem(s, isSuggested) {
-    const div = document.createElement('div');
-    const hoverClass = isSuggested ? "hover:bg-yellow-900/20" : "hover:bg-blue-900/30";
-    div.className = `flex items-center p-2 cursor-pointer border-b border-gray-800 transition ${hoverClass}`;
-    
-    const badge = s.is_full_record 
-        ? '<span class="ml-2 text-[10px] bg-green-900/50 text-green-400 px-1 rounded border border-green-700">Ficha Maestra</span>'
-        : '<span class="ml-2 text-[10px] bg-purple-900/50 text-purple-400 px-1 rounded border border-purple-700">Candidato</span>';
-        
-    const aliasHtml = s._matchedAlias ? `<div class="text-[10px] text-purple-400 mt-1"><i class="fa-solid fa-tags mr-1"></i> Alias coincidente: <span class="font-bold">${s._matchedAlias}</span></div>` : '';
-
-    div.innerHTML = `
-        <div class="flex-1 overflow-hidden">
-            <div class="text-sm text-white font-bold truncate">${s.series_name_es} ${badge}</div>
-            ${aliasHtml}
-            <div class="text-xs text-gray-500 font-mono mt-1">ID: ${s.tvdb_id} • Año: ${s.first_aired || '----'}</div>
-        </div>
-    `;
-    div.onclick = () => selectOmniboxItem(s.tvdb_id, s.series_name_es);
-    return div;
-}
-
-/**
- * Selecciona un ítem del Omnibox, actualiza el valor visual y oculta el desplegable.
- */
-function selectOmniboxItem(tvdbId, displayName) {
-    document.getElementById('edit_tvdb_id').value = tvdbId;
-    document.getElementById('edit_tvdb_search').value = ''; 
-    
-    document.getElementById('omnibox_selected_text').innerText = displayName;
-    document.getElementById('omnibox_selected_badge').classList.remove('hidden');
-    document.getElementById('omnibox_dropdown').classList.add('hidden');
-}
-
-/**
- * Deselecciona el TVDB ID elegido permitiendo volver a buscar.
- */
-function clearOmniboxSelection() {
-    document.getElementById('edit_tvdb_id').value = '';
-    document.getElementById('omnibox_selected_badge').classList.add('hidden');
-    document.getElementById('edit_tvdb_search').focus();
-}
-
-/**
- * Envía a la API las modificaciones manuales hechas sobre el torrent.
- */
-async function saveCacheEdit() {
-    const guid = document.getElementById('edit_cache_guid').value;
-    const title = document.getElementById('edit_cache_title').value.trim();
-    const desc = document.getElementById('edit_cache_description').value.trim();
-    const tvdbId = document.getElementById('edit_tvdb_id').value.trim(); 
-    
-    if(!title) return showToast("El título no puede estar vacío.", false);
-    try {
-        const res = await fetch(`/api/ui/cache/${guid}`, {
-            method: 'PUT', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ai_translated_title: title, description: desc, tvdb_id: tvdbId })
+        const res = await fetch('/api/ui/ai/force_specific', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({guids: guids})
         });
         const data = await res.json();
-        if(data.success) { closeCacheModal(); showToast("Caché actualizada."); loadCacheGrid(); }
-    } catch(e) { showToast("Error de red.", false); }
-}
-
-/**
- * Borra por completo un registro de la base de datos local.
- */
-async function deleteCacheEntry(guid) {
-    if(!confirm("¿Estás seguro de que quieres eliminar este torrent de la caché local?")) return;
-    try {
-        const res = await fetch(`/api/ui/cache/${guid}`, { method: 'DELETE' });
-        const data = await res.json();
         if(data.success) {
-            showToast("Torrent eliminado.");
-            loadCacheGrid();
+            showToast("Procesamiento enviado. Se recargará la vista en breve.");
+            setTimeout(() => loadCacheGrid(), 2000);
+        } else if (data.error) {
+            showToast(data.error, false);
         }
     } catch(e) { showToast("Error de red.", false); }
 }
+/*
+ * Funcion para borrar de la cache los torrents seleccionados.
+ */
+async function deleteBatchSelection() {
+    const guids = Array.from(document.querySelectorAll('.batch-checkbox:checked')).map(cb => cb.value);
+    if(guids.length === 0) return;
+    
+    const accepted = await appConfirm(
+        `¿Estás completamente seguro de ELIMINAR ${guids.length} torrents de la base de datos?\n\nEsta acción no se puede deshacer.`,
+        'Confirmar eliminación'
+    );
+    if (!accepted) return;
 
+    showToast(`Borrando ${guids.length} registros...`);
+    
+    try {
+        const deletePromises = guids.map(guid => 
+            fetch(`/api/ui/cache/${guid}`, { method: 'DELETE' })
+        );
+        
+        await Promise.all(deletePromises);
+        
+        showToast(`Se han eliminado ${guids.length} registros correctamente.`);
+        window.activeTagFilters.clear();
+        loadCacheGrid();
+        
+    } catch(e) {
+        showToast("Hubo un error de red borrando algunos registros.", false);
+        loadCacheGrid();
+    }
+}
 
-// ==========================================
-// EXPORTACIÓN E IMPORTACIÓN MASIVA
-// ==========================================
+/*
+ * BLOQUE IMPORTACION Y EXPORTACION DE CACHE
+ */
 
+/*
+ * Funcion para abrir el modal de exportacion de datos de cache.
+ */
 function openExportModal() {
-    const m = document.getElementById('exportModal');
-    if (m) m.classList.remove('hidden');
+    document.getElementById('exportModal').classList.remove('hidden');
 }
-
+/*
+ * Funcion para cerrar el modal de exportacion de datos de cache.
+ */
 function closeExportModal() {
-    const m = document.getElementById('exportModal');
-    if (m) m.classList.add('hidden');
+    document.getElementById('exportModal').classList.add('hidden');
 }
-
-/**
- * Dispara la descarga del fichero JSON (Bundle, Torrents o TVDB).
+/*
+ * Funcion para iniciar la descarga del backup de cache seleccionado.
  */
 function submitExport() {
     const selected = document.querySelector('input[name="export_type"]:checked');
-    if (!selected) return showToast("Selecciona una opción de exportación.", false);
-    
-    showToast(`Generando archivo de exportación (${selected.value})...`);
-    window.location.href = `/api/ui/cache/export?module=${selected.value}`;
-    closeExportModal();
-}
+    const module = selected ? selected.value : 'bundle';
 
-/**
- * Envía un archivo de exportación previo al servidor para inyectarlo en la base de datos local,
- * manteniendo las relaciones relacionales de TheTVDB intactas.
+    window.location.href = `/api/ui/cache/export?module=${module}`;
+    closeExportModal();
+    showToast("Generando y descargando el archivo...");
+}
+/*
+ * Funcion para importar un backup JSON en la cache local de KITSUNARR.
  */
 async function handleImportCache(event) {
     const file = event.target.files[0];
-    if(!file) return;
-    
+    if (!file) return;
+
+    const accepted = await appConfirm(
+        `¿Deseas importar el archivo "${file.name}"?\n\nKitsunarr añadirá solo registros nuevos, no sobrescribirá fichas existentes, adaptará la URL de descarga a esta instalación, conservará el info hash y reiniciará la telemetría del cliente.`,
+        'Confirmar importación'
+    );
+    if (!accepted) {
+        event.target.value = '';
+        return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
-    
+
+    showToast("Importando archivo, esto puede tardar un momento...");
+
     try {
-        showToast("Analizando e importando datos relacionales...");
         const res = await fetch('/api/ui/cache/import', {
             method: 'POST',
             body: formData
         });
+        
         const data = await res.json();
-        if(data.success) {
-            let msg = `Importación exitosa. ${data.total || data.count} registros insertados.`;
-            if (data.missing_count > 0) msg += ` Descargando ${data.missing_count} series huérfanas en 2º plano.`;
-            showToast(msg, true);
-            loadCacheGrid();
+        
+        if (data.success) {
+            let msg = "Importación completada:\n";
+            if (data.imported.torrents > 0) msg += `- ${data.imported.torrents} Torrents\n`;
+            if (data.imported.shows > 0) msg += `- ${data.imported.shows} Series (TVDB)\n`;
+            if (data.imported.episodes > 0) msg += `- ${data.imported.episodes} Episodios\n`;
+            if (data.imported.candidates > 0) msg += `- ${data.imported.candidates} Enlaces (Candidatos)\n`;
+            
+            if (
+                (data.imported.torrents || 0) === 0 &&
+                (data.imported.shows || 0) === 0 &&
+                (data.imported.episodes || 0) === 0 &&
+                (data.imported.candidates || 0) === 0
+            ) {
+                msg = "No se ha importado ningún dato nuevo (todo existía ya en tu base de datos).";
+            }
+            
+            showToast(msg);
+            setTimeout(() => location.reload(), 2000);
         } else {
-            showToast("Error: " + data.error, false);
+            showToast("Error importando el archivo: " + data.error, false);
         }
-    } catch(e) { showToast("Error de red durante la importación.", false); }
-    
-    event.target.value = ''; 
-}
-
-
-// ==========================================
-// PROCESAMIENTO IA POR LOTES (BATCH)
-// ==========================================
-
-/**
- * Abre el modal de procesamiento por lotes. Consulta la base de datos 
- * para mostrar únicamente los torrents que tienen estado "Pendiente" de IA.
- */
-async function openBatchModal() {
-    const list = document.getElementById('batch_list_container');
-    const btn = document.getElementById('btn_submit_batch');
-    const count = document.getElementById('batch_selected_count');
-    
-    list.innerHTML = '<div class="text-center text-gray-500 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando BD...</div>';
-    document.getElementById('aiBatchModal').classList.remove('hidden');
-    
-    try {
-        const res = await fetch('/api/ui/cache');
-        const data = await res.json();
-        const pending = data.torrents.filter(t => t.ai_status === 'Pendiente');
-        
-        list.innerHTML = ''; count.innerText = '0';
-        btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed');
-        
-        if(pending.length === 0) return list.innerHTML = '<div class="text-center text-gray-500 py-4">No hay torrents pendientes.</div>';
-        
-        pending.forEach(t => {
-            const div = document.createElement('div');
-            div.className = "flex items-center p-3 border border-gray-800 rounded bg-black hover:bg-gray-900 transition cursor-pointer";
-            div.innerHTML = `
-                <input type="checkbox" value="${t.guid}" class="batch-checkbox w-4 h-4 text-yellow-500 bg-gray-800 border-gray-600 rounded cursor-pointer" onchange="updateBatchCount()">
-                <div class="ml-3 overflow-hidden">
-                    <div class="text-sm text-white font-bold truncate">${t.enriched_title}</div>
-                </div>`;
-            div.onclick = (e) => { if(e.target.tagName !== 'INPUT') { const cb = div.querySelector('input'); cb.checked = !cb.checked; updateBatchCount(); } };
-            list.appendChild(div);
-        });
-    } catch (e) { list.innerHTML = '<div class="text-center text-red-500">Error de red.</div>'; }
-}
-
-/**
- * Actualiza el contador de elementos seleccionados en el modal de procesamiento 
- * por lotes y bloquea el botón si se excede el límite máximo de envíos simultáneos.
- */
-function updateBatchCount() {
-    const checked = document.querySelectorAll('.batch-checkbox:checked').length;
-    const btn = document.getElementById('btn_submit_batch');
-    document.getElementById('batch_selected_count').innerText = checked;
-    
-    if (checked > 0 && checked <= 5) {
-        btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed');
-    } else {
-        btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed');
-        if(checked > 5) showToast("Máximo 5 elementos por lote", false);
+    } catch (e) {
+        showToast("Error de red al intentar importar.", false);
     }
+
+    event.target.value = '';
 }
 
-/**
- * Envía la lista de GUIDs seleccionados en el modal de lotes al backend 
- * para forzar su procesamiento mediante la IA.
+/*
+ * BLOQUE INICIALIZACION
  */
-async function submitBatchProcess() {
-    const guids = Array.from(document.querySelectorAll('.batch-checkbox:checked')).map(cb => cb.value);
-    if(guids.length === 0 || guids.length > 5) return;
-    
-    closeModals(); showToast(`Enviando ${guids.length} torrents a procesar...`);
-    try {
-        const res = await fetch('/api/ui/ai/force_specific', {
-            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ guids })
-        });
-        const data = await res.json();
-        if(data.success) {
-            showToast("Procesamiento enviado. Revisa la consola.");
-            loadCacheGrid();
-        }
-    } catch(e) { showToast("Error de red.", false); }
-}
 
-/**
- * Cierra el modal de procesamiento por lotes.
+/*
+ * Funcion de inicializacion de la cache local cuando la cuadricula esta disponible.
  */
-function closeBatchModal() { document.getElementById('aiBatchModal').classList.add('hidden'); }
-
-// Al cargar la vista de caché, carga la cuadrícula de torrents
 document.addEventListener("DOMContentLoaded", () => {
     if(document.getElementById('cache-grid')) {
         loadCacheGrid();

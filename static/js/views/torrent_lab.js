@@ -1,20 +1,20 @@
 /*
-======================================================================
-LÓGICA DEL LABORATORIO DE TORRENTS (torrent_lab.js)
-Gestiona la comunicación asíncrona entre Kitsunarr y qBittorrent para
-el emparejamiento manual de metadatos. Implementa búsqueda filtrada
-en ambos extremos, renderizado dinámico de pósters y envío de
-solicitudes de vinculación de Info Hashes a la base de datos local.
-======================================================================
-*/
+ * BLOQUE LABORATORIO DE TORRENTS
+ */
 
 let kitsunarrTorrents = [];
 let qbittorrentTorrents = [];
 
+/*
+ * Carga en paralelo las fichas locales de Kitsunarr y los torrents visibles en qBittorrent.
+ */
 async function loadData() {
     await Promise.all([fetchKitsunarrOrphans(), fetchQbittorrentList()]);
 }
 
+/*
+ * Obtiene fichas de Kitsunarr sin info hash para poder vincularlas manualmente.
+ */
 async function fetchKitsunarrOrphans() {
     try {
         const res = await fetch('/api/ui/cache');
@@ -26,6 +26,9 @@ async function fetchKitsunarrOrphans() {
     }
 }
 
+/*
+ * Obtiene la lista de torrents de qBittorrent para emparejamiento manual.
+ */
 async function fetchQbittorrentList() {
     try {
         const res = await fetch('/api/ui/qbittorrent/list');
@@ -41,6 +44,13 @@ async function fetchQbittorrentList() {
     }
 }
 
+/*
+ * BLOQUE DESPLEGABLES DE EMPAREJAMIENTO
+ */
+
+/*
+ * Renderiza el desplegable de fichas locales pendientes de vincular.
+ */
 function renderKitDropdown(items) {
     const list = document.getElementById('kit_dropdown_list');
     if (!list) return;
@@ -54,6 +64,9 @@ function renderKitDropdown(items) {
     });
 }
 
+/*
+ * Renderiza el desplegable de torrents encontrados en qBittorrent.
+ */
 function renderQbDropdown(items) {
     const list = document.getElementById('qb_dropdown_list');
     if (!list) return;
@@ -67,6 +80,9 @@ function renderQbDropdown(items) {
     });
 }
 
+/*
+ * Filtra el desplegable de fichas de Kitsunarr por título o GUID.
+ */
 function filterKitDropdown() {
     const q = document.getElementById('kit_search_input').value.toLowerCase();
     const filtered = kitsunarrTorrents.filter(t => 
@@ -76,6 +92,9 @@ function filterKitDropdown() {
     renderKitDropdown(filtered);
 }
 
+/*
+ * Filtra el desplegable de qBittorrent por nombre o info hash.
+ */
 function filterQbDropdown() {
     const q = document.getElementById('qb_search_input').value.toLowerCase();
     const filtered = qbittorrentTorrents.filter(t => 
@@ -85,6 +104,9 @@ function filterQbDropdown() {
     renderQbDropdown(filtered);
 }
 
+/*
+ * Selecciona una ficha local de Kitsunarr para el emparejamiento.
+ */
 function selectKitTorrent(t) {
     document.getElementById('kit_search_input').value = t.enriched_title;
     document.getElementById('kit_selected_guid').value = t.guid;
@@ -96,11 +118,14 @@ function selectKitTorrent(t) {
         poster.style.backgroundImage = `url('/api/ui/poster?url=${encodeURIComponent(t.poster_url)}')`;
         poster.innerHTML = '';
     } else {
-        poster.style.backgroundImage = 'none';
-        poster.innerHTML = '<i class="fa-solid fa-image text-4xl text-gray-800"></i>';
+        poster.style.backgroundImage = "url('/static/img/Kitsunarr-logo-512x512.png')";
+        poster.innerHTML = '';
     }
 }
 
+/*
+ * Selecciona un torrent de qBittorrent para el emparejamiento.
+ */
 function selectQbTorrent(t) {
     document.getElementById('qb_search_input').value = t.name;
     document.getElementById('qb_selected_hash').value = t.info_hash;
@@ -110,6 +135,13 @@ function selectQbTorrent(t) {
     document.getElementById('qb_progress_display').innerText = (t.progress * 100).toFixed(1) + '%';
 }
 
+/*
+ * BLOQUE EMPAREJAMIENTO MANUAL
+ */
+
+/*
+ * Envía el vínculo entre ficha Kitsunarr e info hash de qBittorrent.
+ */
 async function pairTorrents() {
     const guid = document.getElementById('kit_selected_guid').value;
     const hash = document.getElementById('qb_selected_hash').value;
@@ -140,6 +172,9 @@ async function pairTorrents() {
     }
 }
 
+/*
+ * Convierte bytes a texto legible dentro del laboratorio de torrents.
+ */
 function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -149,11 +184,29 @@ function formatBytes(bytes, decimals = 2) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
+/*
+ * Muestra el desplegable de fichas Kitsunarr.
+ */
 function showKitDropdown() { document.getElementById('kit_dropdown_list').classList.remove('hidden'); }
+
+/*
+ * Oculta el desplegable de fichas Kitsunarr tras permitir selección.
+ */
 function hideKitDropdownDelayed() { setTimeout(() => { const l = document.getElementById('kit_dropdown_list'); if(l) l.classList.add('hidden'); }, 200); }
+
+/*
+ * Muestra el desplegable de torrents qBittorrent.
+ */
 function showQbDropdown() { document.getElementById('qb_dropdown_list').classList.remove('hidden'); }
+
+/*
+ * Oculta el desplegable de torrents qBittorrent tras permitir selección.
+ */
 function hideQbDropdownDelayed() { setTimeout(() => { const l = document.getElementById('qb_dropdown_list'); if(l) l.classList.add('hidden'); }, 200); }
 
+/*
+ * Inicializa el laboratorio de torrents cuando la vista está cargada.
+ */
 document.addEventListener("DOMContentLoaded", () => {
     loadData();
 });

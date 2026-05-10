@@ -6,19 +6,6 @@
 {% block header_title %}CACHÉ DE TORRENTS{% endblock %}
 
 {% block content %}
-{# ========================================== #}
-{# VISTA PRINCIPAL: CACHÉ DE TORRENTS         #}
-{# ========================================== #}
-{# 
-    Esta vista actúa como el panel de control central de la base de datos local.
-    Muestra una tabla responsiva con todos los torrents extraídos, su estado de 
-    procesamiento de IA y vinculación con TheTVDB.
-    
-    Funcionalidades clave:
-    - Búsqueda y filtrado en tiempo real (lado del cliente).
-    - Importación y exportación de la base de datos en formato JSON.
-    - Lanzamiento de acciones masivas o individuales sobre los registros.
-#}
 <div class="h-full flex flex-col">
     <div class="flex items-center justify-between mb-4">
         <div class="flex items-center space-x-4 w-1/2">
@@ -29,85 +16,99 @@
         </div>
         <div class="flex items-center space-x-2">
             <input type="file" id="import_cache_file" accept=".json" class="hidden" onchange="handleImportCache(event)">
-            <button onclick="document.getElementById('import_cache_file').click()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500" title="Importar JSON">
+            
+            <button onclick="document.getElementById('import_cache_file').click()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-blue-500 font-bold shadow-sm" title="Importar JSON">
                 <i class="fa-solid fa-file-import mr-1 text-blue-400"></i> Importar
             </button>
-            <button onclick="openExportModal()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500" title="Exportar JSON">
+            <button onclick="openExportModal()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-green-500 font-bold shadow-sm" title="Exportar JSON">
                 <i class="fa-solid fa-file-export mr-1 text-green-400"></i> Exportar
             </button>
-            <button onclick="openBatchModal()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500" title="Procesar Lote Manual">
-                <i class="fa-solid fa-layer-group mr-1 text-purple-400"></i> Lote Manual
+            
+            <button onclick="deleteBatchSelection()" id="btn_batch_delete" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-red-500 opacity-50 cursor-not-allowed font-bold shadow-sm" disabled title="Borrar Selección">
+                <i class="fa-solid fa-trash-can mr-1 text-red-500"></i> Borrar
             </button>
-            <button onclick="loadCacheGrid()" class="px-3 py-1.5 bg-black text-gray-400 hover:text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500" title="Recargar base de datos">
+            
+            <button onclick="openBatchModal()" id="btn_batch_ai" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-purple-500 opacity-50 cursor-not-allowed font-bold shadow-sm" disabled title="Procesar Lote con IA">
+                <i class="fa-solid fa-layer-group mr-1 text-purple-400"></i> Lote IA
+            </button>
+            
+            <button onclick="loadCacheGrid()" class="px-3 py-1.5 bg-black text-gray-400 hover:text-white rounded border border-gray-600 transition text-sm hover:border-yellow-500 font-bold shadow-sm" title="Recargar base de datos">
                 <i class="fa-solid fa-rotate"></i>
             </button>
         </div>
     </div>
 
+    <div class="bg-[#05080c] border border-gray-800 rounded p-3 mb-4 shrink-0 flex items-center gap-4 overflow-x-auto custom-scrollbar shadow-inner" id="global_tags_bar">
+        <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest shrink-0"><i class="fa-solid fa-tags mr-1"></i> Filtros:</div>
+        <div id="filter_tags_container" class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-600 italic">Analizando Filtros...</span>
+        </div>
+    </div>
+
     <div class="k-panel p-6 overflow-y-auto flex-1 custom-scrollbar">
-        <div id="cache-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+        <div id="cache-grid" class="responsive-poster-grid">
             <div class="col-span-full text-center p-8 text-gray-500">
                 <i class="fa-solid fa-spinner fa-spin mr-2"></i> Cargando base de datos...
             </div>
         </div>
     </div>
 </div>
+
 <div id="exportModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-[100] backdrop-blur-sm p-4">
-        <div class="k-panel w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col border border-green-900/50">
-            <div class="px-6 py-4 flex justify-between items-center border-b border-gray-800 bg-green-900/20">
-                <h2 class="text-lg font-bold text-green-400"><i class="fa-solid fa-file-export mr-2"></i> Exportar Base de Conocimientos</h2>
-                <button onclick="closeExportModal()" class="text-gray-400 hover:text-white transition"><i class="fa-solid fa-xmark text-xl"></i></button>
-            </div>
-            <div class="p-6 space-y-4">
-                <p class="text-sm text-gray-300 mb-2">Selecciona qué módulo deseas exportar. Cada opción está diseñada para un caso de uso diferente:</p>
+    <div class="k-panel w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col border border-green-900/50">
+        <div class="px-6 py-4 flex justify-between items-center border-b border-gray-800 bg-green-900/20">
+            <h2 class="text-lg font-bold text-green-400"><i class="fa-solid fa-file-export mr-2"></i> Exportar Base de Conocimientos</h2>
+            <button onclick="closeExportModal()" class="text-gray-400 hover:text-white transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+            <p class="text-sm text-gray-300 mb-2">Selecciona qué quieres exportar. Los JSON no incluyen credenciales, cookies, API keys ni datos del cliente qBittorrent; esos valores se rehidratan en la instalación destino.</p>
 
-                <label class="flex items-start p-4 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-800/50 transition">
-                    <div class="flex-shrink-0 mt-1 mr-4">
-                        <input type="radio" name="export_type" value="torrents" class="w-4 h-4 text-green-500 bg-gray-900 border-gray-600 focus:ring-green-500">
-                    </div>
-                    <div>
-                        <div class="text-white font-bold text-sm mb-1"><i class="fa-solid fa-download text-purple-400 mr-1"></i> Solo fichas Torrents</div>
-                        <div class="text-xs text-gray-400 leading-relaxed">Exporta únicamente las fichas crudas del indexador. Ideal para enviárselo a un amigo que tenga IA y TVDB configurados para que te procese los nombres y relaciones.</div>
-                    </div>
-                </label>
+            <label class="flex items-start p-4 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-800/50 transition">
+                <div class="flex-shrink-0 mt-1 mr-4">
+                    <input type="radio" name="export_type" value="torrents" class="w-4 h-4 text-green-500 bg-gray-900 border-gray-600 focus:ring-green-500">
+                </div>
+                <div>
+                    <div class="text-white font-bold text-sm mb-1"><i class="fa-solid fa-download text-purple-400 mr-1"></i> Solo fichas Torrents</div>
+                    <div class="text-xs text-gray-400 leading-relaxed">Exporta todas las fichas cacheadas del tracker con títulos, sinopsis, tags, archivos, estados IA/TVDB, URL de descarga e info hash. No exporta telemetría viva de qBittorrent.</div>
+                </div>
+            </label>
 
-                <label class="flex items-start p-4 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-800/50 transition">
-                    <div class="flex-shrink-0 mt-1 mr-4">
-                        <input type="radio" name="export_type" value="tvdb" class="w-4 h-4 text-green-500 bg-gray-900 border-gray-600 focus:ring-green-500">
-                    </div>
-                    <div>
-                        <div class="text-white font-bold text-sm mb-1"><i class="fa-solid fa-book-bookmark text-blue-400 mr-1"></i> Biblioteca TVDB (Metadatos para Compartir)</div>
-                        <div class="text-xs text-gray-400 leading-relaxed">Exporta solo las Fichas Maestras, pósters y capítulos traducidos. Útil para compartir y ahorrar a otros usuarios llamadas a la API de TheTVDB.</div>
-                    </div>
-                </label>
+            <label class="flex items-start p-4 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-800/50 transition">
+                <div class="flex-shrink-0 mt-1 mr-4">
+                    <input type="radio" name="export_type" value="tvdb" class="w-4 h-4 text-green-500 bg-gray-900 border-gray-600 focus:ring-green-500">
+                </div>
+                <div>
+                    <div class="text-white font-bold text-sm mb-1"><i class="fa-solid fa-book-bookmark text-blue-400 mr-1"></i> Solo Biblioteca TVDB</div>
+                    <div class="text-xs text-gray-400 leading-relaxed">Exporta fichas maestras TheTVDB, alias, sinopsis, pósters, banners, temporadas y episodios locales. No incluye torrents ni credenciales de TheTVDB.</div>
+                </div>
+            </label>
 
-                <label class="flex items-start p-4 border border-green-500/30 bg-green-900/10 rounded-lg cursor-pointer hover:bg-green-900/20 transition">
-                    <div class="flex-shrink-0 mt-1 mr-4">
-                        <input type="radio" name="export_type" value="bundle" checked class="w-4 h-4 text-green-500 bg-gray-900 border-gray-600 focus:ring-green-500">
-                    </div>
-                    <div>
-                        <div class="text-green-400 font-bold text-sm mb-1"><i class="fa-solid fa-boxes-packing mr-1"></i> Copia de Seguridad Total (Bundle)</div>
-                        <div class="text-xs text-gray-400 leading-relaxed">Empaqueta Torrents y Fichas TVDB en un único archivo. Es la opción recomendada para hacer backups, compartir o migrar Kitsunarr.</div>
-                        <div class="text-[10px] text-yellow-500 mt-2 font-bold"><i class="fa-solid fa-filter mr-1"></i> FILTRO INTELIGENTE: Solo exportará los torrents validados (Tick Verde) para evitar transferir basura.</div>
-                    </div>
-                </label>
-            </div>
-            <div class="px-6 py-4 border-t border-gray-800 bg-black flex justify-end space-x-3">
-                <button onclick="closeExportModal()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-bold rounded transition">Cancelar</button>
-                <button onclick="submitExport()" class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-bold rounded shadow-lg transition flex items-center">
-                    <i class="fa-solid fa-file-arrow-down mr-2"></i> Generar JSON
-                </button>
-            </div>
+            <label class="flex items-start p-4 border border-green-500/30 bg-green-900/10 rounded-lg cursor-pointer hover:bg-green-900/20 transition">
+                <div class="flex-shrink-0 mt-1 mr-4">
+                    <input type="radio" name="export_type" value="bundle" checked class="w-4 h-4 text-green-500 bg-gray-900 border-gray-600 focus:ring-green-500">
+                </div>
+                <div>
+                    <div class="text-green-400 font-bold text-sm mb-1"><i class="fa-solid fa-boxes-packing mr-1"></i> Bundle verificado</div>
+                    <div class="text-xs text-gray-400 leading-relaxed">Empaqueta torrents ya validados por IA y TVDB junto a sus fichas maestras, episodios y relaciones. Es la opción recomendada para backup limpio, migración o compartir una base fiable.</div>
+                    <div class="text-[10px] text-yellow-500 mt-2 font-bold"><i class="fa-solid fa-filter mr-1"></i> FILTRO INTELIGENTE: solo incluye torrents con IA Lista y TVDB Listo para evitar transferir fichas pendientes o basura.</div>
+                </div>
+            </label>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-800 bg-black flex justify-end space-x-3">
+            <button onclick="closeExportModal()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-bold rounded transition">Cancelar</button>
+            <button onclick="submitExport()" class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-bold rounded shadow-lg transition flex items-center">
+                <i class="fa-solid fa-file-arrow-down mr-2"></i> Generar JSON
+            </button>
         </div>
     </div>
+</div>
 {% endblock %}
 
 {% block modals %}
     {% include 'components/modal_info.html' %}
-    {% include 'components/modal_edit.html' %}
-    {% include 'components/modal_ai.html' %}
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', path='js/core/tags.js') }}"></script>
 <script src="{{ url_for('static', path='js/views/cache.js') }}"></script>
 {% endblock %}

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% set active_page = "cache" %}
+
+{% block title %}Ficha del Torrent{% endblock %}
+{% block header_title %}FICHA TÉCNICA DEL TORRENT{% endblock %}
+
+{% block content %}
+<input type="hidden" id="current_torrent_guid" value="{{ guid }}">
+
+<div class="flex flex-col w-full h-full min-h-0 pb-2 overflow-hidden">
+    
+    <div class="mb-4 flex justify-between items-center bg-[#0a0f18] p-3 rounded-lg border border-gray-800 shadow-md shrink-0">
+        <button id="btn_detail_back" onclick="goBackSmart()" class="text-gray-400 hover:text-white transition flex items-center bg-black px-4 py-2 rounded border border-gray-700 hover:border-gray-500 font-bold text-sm">
+            <i class="fa-solid fa-arrow-left mr-2"></i> <span id="btn_detail_back_text">Volver a Caché</span>
+        </button>
+        
+        <div class="flex items-center space-x-2">
+            <button onclick="openEditModalFromDetail()" class="px-4 py-2 bg-black text-white rounded border border-gray-700 transition text-sm hover:border-yellow-500 hover:text-yellow-500 font-bold" title="Editar Manualmente">
+                <i class="fa-solid fa-pen mr-2"></i> Editar
+            </button>
+            <button onclick="forceAiProcessing()" id="btn_force_ai_detail" class="px-4 py-2 bg-black text-purple-400 rounded border border-purple-900/50 transition text-sm hover:bg-purple-900/20 hover:border-purple-500 font-bold" title="Procesar con IA">
+                <i class="fa-solid fa-robot mr-2"></i> Limpiar con IA
+            </button>
+            <button onclick="deleteCurrentTorrent()" class="px-4 py-2 bg-red-900/20 text-red-500 rounded border border-red-900/50 transition text-sm hover:bg-red-900/40 hover:border-red-500 font-bold" title="Eliminar Torrent">
+                <i class="fa-solid fa-trash-can mr-2"></i> Eliminar
+            </button>
+        </div>
+    </div>
+
+    <div id="torrent_detail_layout" class="flex flex-col lg:flex-row gap-4 w-full h-full min-h-0 overflow-hidden">
+        
+        <div class="w-full lg:w-1/4 xl:w-1/5 h-full min-h-0 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2 lg:pr-1 shrink-0 pb-2">
+            
+            <div class="relative w-full shrink-0 rounded-lg shadow-2xl border border-gray-700 bg-black overflow-hidden" style="aspect-ratio: 2/3;">
+                <div id="detail_batch_badge" class="absolute top-2 right-2 bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg z-10 uppercase tracking-widest hidden">BATCH</div>
+                <img id="detail_poster" src="/static/img/Kitsunarr-logo-512x512.png" class="w-full h-full object-cover">
+            </div>
+
+            <div class="k-panel flex flex-col border-t-2 border-t-blue-500 shrink-0 shadow-lg bg-[#0a0f18] overflow-hidden">
+                <div class="flex justify-between bg-black p-3 border-b border-gray-800">
+                    <div class="text-center w-1/2 border-r border-gray-800">
+                        <div class="text-[9px] text-green-500/70 font-bold uppercase mb-0.5"><i class="fa-solid fa-arrow-up text-green-500 mr-1"></i> Semillas</div>
+                        <div id="detail_seeders" class="text-sm font-mono text-green-400 font-bold">-</div>
+                    </div>
+                    <div class="text-center w-1/2">
+                        <div class="text-[9px] text-red-500/70 font-bold uppercase mb-0.5"><i class="fa-solid fa-arrow-down text-red-500 mr-1"></i> Pares</div>
+                        <div id="detail_leechers" class="text-sm font-mono text-red-400 font-bold">-</div>
+                    </div>
+                </div>
+
+                <div class="p-4 flex flex-col flex-1">
+                    <div class="flex justify-between items-center mb-3 pb-2 border-b border-gray-800">
+                        <h3 class="text-[10px] font-bold text-blue-500 uppercase tracking-wider"><i class="fa-solid fa-satellite-dish animate-pulse mr-1"></i> Cliente Torrent</h3>
+                        <button id="btn_calc_hash" onclick="calculateHash()" class="hidden bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-600/50 py-1 px-2 rounded text-[9px] font-bold transition flex items-center">Obtener Hash</button>
+                    </div>
+                    
+                    <div id="telemetry_container" class="hidden flex flex-col gap-3 flex-1">
+                        <div class="w-full bg-gray-900 rounded-full h-1.5 border border-gray-700 relative overflow-hidden">
+                            <div id="info_qb_progress_bar" class="bg-blue-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mt-1">
+                            <div>
+                                <div class="text-[8px] text-gray-500 font-bold uppercase mb-0.5">Estado</div>
+                                <div id="info_qb_status" class="text-[10px] text-gray-300 font-bold truncate">-</div>
+                            </div>
+                            <div>
+                                <div class="text-[8px] text-gray-500 font-bold uppercase mb-0.5">Progreso</div>
+                                <div id="info_qb_progress_text" class="text-[10px] text-blue-400 font-bold font-mono">0.0%</div>
+                            </div>
+                            <div>
+                                <div class="text-[8px] text-gray-500 font-bold uppercase mb-0.5">Descarga</div>
+                                <div id="info_qb_dlspeed" class="text-[10px] text-green-400 font-bold font-mono truncate">0 B/s</div>
+                            </div>
+                            <div>
+                                <div class="text-[8px] text-gray-500 font-bold uppercase mb-0.5">Subida</div>
+                                <div id="info_qb_upspeed" class="text-[10px] text-cyan-400 font-bold font-mono truncate">0 B/s</div>
+                            </div>
+                            <div>
+                                <div class="text-[8px] text-gray-500 font-bold uppercase mb-0.5">Ratio</div>
+                                <div id="info_qb_ratio" class="text-[10px] text-purple-300 font-bold font-mono">0.00</div>
+                            </div>
+                            <div>
+                                <div class="text-[8px] text-gray-500 font-bold uppercase mb-0.5">Restante</div>
+                                <div id="info_qb_eta" class="text-[10px] text-gray-300 font-bold font-mono">-</div>
+                            </div>
+                            <div class="col-span-2">
+                                <div class="text-[8px] text-gray-500 font-bold uppercase mb-0.5">Hash Identificador</div>
+                                <div id="info_qb_hash" class="text-[10px] text-gray-400 font-mono truncate">-</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="telemetry_missing" class="text-[10px] text-gray-500 italic flex items-center py-2 flex-1">
+                        <i class="fa-solid fa-circle-exclamation text-yellow-600 mr-2"></i> Ficha no sincronizada con el cliente de descargas.
+                    </div>
+
+                    <div class="mt-3 pt-3 border-t border-gray-800">
+                        <button onclick="downloadTorrentFile()" class="w-full bg-[#05080c] hover:bg-green-900/40 text-gray-300 hover:text-green-400 border border-gray-700 hover:border-green-500 py-2 px-3 rounded text-[10px] font-bold transition flex items-center justify-center shadow-sm">
+                            <i class="fa-solid fa-download mr-2"></i> Descargar .torrent Manualmente
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex-1 h-full min-h-0 flex flex-col gap-4 min-w-0 overflow-hidden pb-2">
+            
+            <div class="k-panel p-5 border-l-4 border-l-yellow-500 shrink-0">
+                <div class="mb-4">
+                    <span class="text-[9px] text-blue-400 font-bold uppercase tracking-widest"><i class="fa-solid fa-heading mr-1"></i> Título Principal</span>
+                    <h2 id="detail_ai_title" class="text-base md:text-lg font-bold text-blue-100 leading-snug break-words whitespace-normal mt-1 max-h-24 overflow-y-auto custom-scrollbar">Pendiente de procesar...</h2>
+                </div>
+
+                <div class="mb-4 pb-4 border-b border-gray-800/50"></div>
+
+                <div id="detail_tags_container" class="flex flex-wrap gap-2 mb-4 pb-4 border-b border-gray-800/50">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <span class="text-[9px] text-gray-500 font-bold uppercase tracking-widest block mb-1"><i class="fa-solid fa-tag mr-1"></i> Nombre Original del Tracker</span>
+                        <div id="detail_original_title" class="text-xs text-gray-400 font-mono break-words whitespace-normal">...</div>
+                    </div>
+                    <div>
+                        <span class="text-[9px] text-purple-400 font-bold uppercase block mb-1">ID del Foro (GUID)</span>
+                        <div id="detail_guid" class="text-xs text-white font-mono">...</div>
+                    </div>
+                    <div>
+                        <span class="text-[9px] text-pink-400 font-bold uppercase block mb-1">Freeleech 🎁</span>
+                        <div id="detail_freeleech" class="text-xs text-white font-bold truncate">...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
+                <div class="k-panel p-3 text-center border-t border-t-gray-500 bg-gray-900/30 flex justify-between items-center px-6">
+                    <div class="text-[9px] text-gray-400 font-bold uppercase">Tamaño</div>
+                    <div id="detail_size" class="text-sm font-mono text-white font-bold">-</div>
+                </div>
+                <div class="k-panel p-3 text-center border-t border-t-blue-500 bg-gray-900/30 flex justify-between items-center px-6">
+                    <div class="text-[9px] text-blue-500/70 font-bold uppercase">Temporada</div>
+                    <div id="detail_parsed_season" class="text-sm font-mono text-white font-bold truncate">-</div>
+                </div>
+                <div class="k-panel p-3 border-t border-t-purple-500 bg-gray-900/30 flex justify-between items-center px-6">
+                    <div class="text-[9px] text-purple-400 font-bold uppercase">Estado IA</div>
+                    <div id="detail_ai_status" class="text-xs font-bold truncate">-</div>
+                </div>
+                <div class="k-panel p-3 border-t border-t-blue-500 bg-gray-900/30 flex justify-between items-center px-6">
+                    <div class="text-[9px] text-blue-400 font-bold uppercase">TVDB Oficial</div>
+                    <div id="detail_tvdb_status" class="text-xs font-bold truncate">-</div>
+                </div>
+            </div>
+
+            <div class="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
+                <div class="flex-1 k-panel flex flex-col min-h-0 border border-gray-800 shadow-inner">
+                    <div class="bg-[#0a0f18] px-4 py-2 border-b border-gray-800 shrink-0">
+                        <h3 class="text-white font-bold text-xs"><i class="fa-solid fa-align-left text-yellow-500 mr-2"></i> Sinopsis del Uploader</h3>
+                    </div>
+                    <div class="flex-1 min-h-0 p-4 overflow-y-auto custom-scrollbar bg-[#05080c]">
+                        <div id="detail_description" class="text-xs text-gray-400 italic leading-relaxed whitespace-pre-wrap break-words">Cargando...</div>
+                    </div>
+                </div>
+                <div class="flex-1 k-panel flex flex-col min-h-0 border border-gray-800 shadow-inner">
+                    <div class="bg-[#0a0f18] px-4 py-2 border-b border-gray-800 shrink-0 flex justify-between items-center">
+                        <h3 class="text-white font-bold text-xs"><i class="fa-solid fa-file-video text-blue-400 mr-2"></i> Archivos & Renombrado</h3>
+                        <span id="detail_file_count" class="text-gray-400 text-[10px] font-mono border border-gray-700 bg-black px-2 py-0.5 rounded">0</span>
+                    </div>
+                    <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-[#05080c]">
+                        <ul id="detail_file_list" class="divide-y divide-gray-800/50 p-2">
+                            <li class="p-4 text-center text-xs text-gray-600 italic mt-4">Cargando lista de archivos...</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', path='js/core/utils.js') }}"></script>
+<script src="{{ url_for('static', path='js/core/tags.js') }}"></script>
+<script src="{{ url_for('static', path='js/views/tracker_torrent.js') }}"></script>
+{% endblock %}

@@ -6,9 +6,6 @@
 {% block header_title %}CONFIGURACIÓN DE SISTEMA{% endblock %}
 
 {% block content %}
-{# ========================================== #}
-{# VISTA PRINCIPAL: CONFIGURACIÓN GLOBAL      #}
-{# ========================================== #}
 <div class="h-full grid grid-cols-1 xl:grid-cols-2 gap-6 items-start overflow-y-auto custom-scrollbar pb-6">
     
     <div class="flex flex-col space-y-6">
@@ -49,6 +46,12 @@
             </div>
             
             <div class="space-y-4">
+                <div class="rounded border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-100 leading-relaxed">
+                    <div class="font-bold uppercase tracking-wide text-yellow-400 mb-1">
+                        <i class="fa-solid fa-triangle-exclamation mr-2"></i> Aviso beta
+                    </div>
+                    Kitsunarr esta en fase beta. Al autoagregar el indexador a Sonarr, revisa los campos RSS y busqueda automatica antes de dejarlos activos: si Kitsunarr identifica mal una ficha, Sonarr podria descargar algo incorrecto.
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-2">URL Instancia</label>
@@ -166,7 +169,6 @@
                     <i class="fa-solid fa-code mr-2 text-purple-500 group-hover:text-purple-400 transition-colors"></i> Editar Prompt Custom
                 </button>
             </div>
-            
         </div>
 
     </div>
@@ -188,7 +190,7 @@
                     <div>
                         <h2 class="text-2xl font-normal text-white mb-2 tracking-wide">TheTVDB</h2>
                         <p class="text-sm text-gray-400">
-                            La información oficial de las series y los pósters es proporcionada por TheTVDB.com. 
+                            La información oficial de las series y los pósters es proporcionada por TheTVDB.com.
                             <a href="https://thetvdb.com/api-information" target="_blank" class="text-blue-400 hover:text-blue-300 transition">Regístrate como desarrollador</a> para obtener una clave gratuita.
                         </p>
                     </div>
@@ -235,9 +237,17 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Modelo Específico</label>
-                        <input type="text" id="ai_model" value="{{ ai_config.model_name }}" placeholder="ej. gemini-1.5-flash" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner" />
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Perfil de Modelo</label>
+                        <select id="ai_profile" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition">
+                            <option value="default">Seleccionar perfil...</option>
+                        </select>
                     </div>
+                </div>
+
+                <div id="ai_custom_model_container">
+                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Modelo Específico</label>
+                    <input type="text" id="ai_model" value="{{ ai_config.model_name }}" placeholder="ej. gemini-2.5-flash / gpt-4.1-mini / llama3.1:8b" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner" />
+                    <p class="text-[11px] text-gray-500 mt-2">Siempre puedes elegir el modelo manualmente. El perfil solo sugiere límites base por plan.</p>
                 </div>
 
                 <div id="ai_key_container" class="{% if ai_config.provider == 'ollama' %}hidden{% endif %}">
@@ -280,9 +290,31 @@
                 
                 <div class="bg-yellow-900/20 border border-yellow-700/50 rounded p-3">
                     <p class="text-[11px] text-gray-400 leading-relaxed text-justify">
-                        Estas variables previenen los bloqueos temporales por exceso de peticiones<br>
-                        <span class="block mt-1"><strong class="text-yellow-500 font-bold">💡 Consejo:</strong> Si utilizas esta misma API Key para otras aplicaciones, configura aquí valores <strong>menores al máximo permitido</strong> por tu plan gratuito para reservar cupo de recursos.</span>
+                        Estos límites evitan bloqueos temporales por exceso de peticiones.<br>
+                        <span class="block mt-1"><strong class="text-yellow-500 font-bold">💡 Consejo:</strong> Consulta los límites oficiales de tu <strong>modelo</strong> y <strong>proveedor</strong> (según tu plan gratuito o de pago) y configura aquí valores acordes, especialmente si compartes la misma API Key con otras aplicaciones.</span>
                     </p>
+                </div>
+
+                <div class="mt-4 bg-black/40 border border-gray-800 rounded p-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-bold text-cyan-300 uppercase tracking-wider">
+                            <i class="fa-solid fa-chart-line mr-1"></i> Uso Actual del Modelo
+                        </h4>
+                        <button type="button" onclick="loadLimitsForSelectedModel(true)" class="text-[10px] px-2 py-1 rounded border border-cyan-700 text-cyan-300 hover:bg-cyan-900/20 transition">
+                            Refrescar
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs font-mono">
+                        <div class="bg-gray-900/70 border border-gray-800 rounded px-2 py-2 text-gray-300">Req/min usadas: <span id="ai_stats_rpm_used" class="text-white">-</span></div>
+                        <div class="bg-gray-900/70 border border-gray-800 rounded px-2 py-2 text-gray-300">Tokens/min usados: <span id="ai_stats_tpm_used" class="text-white">-</span></div>
+                        <div class="bg-gray-900/70 border border-gray-800 rounded px-2 py-2 text-gray-300">Req/día usadas: <span id="ai_stats_rpd_used" class="text-white">-</span></div>
+                    </div>
+                    <div class="mt-2 text-[10px] text-gray-500 font-mono">Ventana: <span id="ai_stats_window">-</span> | Día cuota: <span id="ai_stats_day">-</span></div>
+                    <div class="mt-2 text-[10px] font-mono">
+                        Estado del modelo:
+                        <span id="ai_model_runtime_state" class="text-green-400 font-bold">Activo</span>
+                        <span id="ai_model_runtime_until" class="text-yellow-400 ml-2"></span>
+                    </div>
                 </div>
             </div>
 
@@ -290,11 +322,10 @@
                 <button onclick="resetAIQuota()" class="bg-gray-800 hover:bg-red-900 text-gray-300 hover:text-white px-6 py-2.5 rounded transition flex items-center font-bold">
                     <i class="fa-solid fa-rotate-left mr-2"></i> Resetear Cuota
                 </button>
-                <button onclick="saveAIConfig()" class="btn-primary glow-yellow px-6 py-2.5 shadow-lg flex items-center">
+                                <button id="btn_save_ai_config" onclick="saveAIConfig()" class="btn-primary glow-yellow px-6 py-2.5 shadow-lg flex items-center">
                     <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar LLM
                 </button>
             </div>
-            
         </div>
     </div>
 </div>
@@ -306,5 +337,6 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', path='js/core/modals.js') }}"></script>
 <script src="{{ url_for('static', path='js/views/config.js') }}"></script>
 {% endblock %}

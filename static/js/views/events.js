@@ -1,10 +1,9 @@
-// ==========================================
-// LÓGICA DE LA VISTA: EVENTOS Y LOGS
-// ==========================================
+/*
+ * BLOQUE CONSOLA DE EVENTOS
+ */
 
-/**
- * Consulta el archivo físico de registro a través de la API y lo carga en la 
- * terminal simulada de la pestaña de estado, controlando el scroll automático.
+/*
+ * Carga los eventos recientes del log de Kitsunarr y mantiene el scroll al final si el usuario ya estaba abajo.
  */
 async function fetchLogs() {
     const consoleEl = document.getElementById('log-console');
@@ -26,11 +25,15 @@ async function fetchLogs() {
     }
 }
 
-/**
- * Trunca el archivo físico de registro eliminando todo su contenido.
+/*
+ * Vacía el log principal de Kitsunarr desde la consola de eventos.
  */
 async function clearLogs() {
-    if(!confirm("¿Estás seguro de que quieres vaciar todo el registro de eventos?")) return;
+    const accepted = await appConfirm(
+        '¿Estás seguro de que quieres vaciar todo el registro de eventos?',
+        'Confirmar limpieza de logs'
+    );
+    if (!accepted) return;
     
     try {
         const res = await fetch('/api/ui/logs', { method: 'DELETE' });
@@ -46,12 +49,12 @@ async function clearLogs() {
     }
 }
 
-// ==========================================
-// INICIALIZACIÓN AUTOMÁTICA
-// ==========================================
+/*
+ * BLOQUE INICIALIZACION DE EVENTOS
+ */
 
-/**
- * Al cargar la página de eventos, hace una primera llamada y configura el bucle de 5s
+/*
+ * Inicia la carga automática de eventos cuando la vista está presente.
  */
 document.addEventListener("DOMContentLoaded", () => {
     const consoleEl = document.getElementById('log-console');

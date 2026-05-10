@@ -6,18 +6,6 @@
 {% block header_title %}LABORATORIO Y DIAGNÓSTICO IA{% endblock %}
 
 {% block content %}
-{# ========================================== #}
-{# VISTA PRINCIPAL: LABORATORIO DE IA         #}
-{# ========================================== #}
-{# 
-    Entorno de pruebas y diagnóstico para asegurar que el modelo de lenguaje 
-    configurado responde correctamente a las peticiones del sistema.
-    
-    Herramientas incluidas:
-    1. Ping Terminal: Envía una petición de red básica para validar credenciales y medir latencia.
-    2. Simulador de Normalización: Permite elegir un torrent real de la caché local, 
-       enviarlo al modelo de lenguaje seleccionado, y mostrar en crudo la respuesta JSON devuelta.
-#}
 <div class="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start h-full">
             
     <div class="xl:col-span-4 flex flex-col gap-8">
@@ -126,5 +114,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', path='js/views/ai_settings.js') }}"></script>
+<script src="{{ url_for('static', path='js/core/modals.js') }}"></script>
+<script src="{{ url_for('static', path='js/views/ai_lab.js') }}"></script>
 {% endblock %}
