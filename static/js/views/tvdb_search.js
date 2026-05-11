@@ -1,10 +1,27 @@
-// ==========================================
-// LÓGICA DE LA VISTA: BÚSQUEDA THETVDB
-// ==========================================
+/*
+ * BLOQUE BUSQUEDA REMOTA TVDB
+ */
 
-/**
- * Lanza una búsqueda directa a los servidores de TheTVDB y pinta
- * los resultados en una galería de "candidatos crudos".
+/*
+ * Traduce el estado de TheTVDB a una etiqueta en español para mostrarla en las tarjetas.
+ */
+function translateTvdbStatus(status) {
+    const map = {
+        Ended: 'Finalizado',
+        Continuing: 'Continua',
+        Planned: 'Planificada',
+        Upcoming: 'Próximamente',
+        InProduction: 'En producción',
+        Pilot: 'Piloto',
+        Rumored: 'Rumoreada',
+        Canceled: 'Cancelada',
+        OnHiatus: 'En pausa'
+    };
+    return map[status] || status || 'Desconocido';
+}
+
+/*
+ * Lanza una búsqueda manual contra TheTVDB y muestra los candidatos encontrados.
  */
 async function runTvdbSearch() {
     const query = document.getElementById('tvdbInteractiveSearchInput').value.trim();
@@ -28,20 +45,25 @@ async function runTvdbSearch() {
         if(data.success) {
             renderTvdbSearchResults(data.results || []);
         } else {
-            grid.innerHTML = `<div class="col-span-full p-8 text-center text-red-500 font-bold"><i class="fa-solid fa-triangle-exclamation mr-2"></i> Error: ${data.error}</div>`;
-            showToast(data.error, false);
+            grid.innerHTML = `
+                <div class="col-span-full p-8 text-center text-blue-400 font-bold bg-blue-900/10 border border-blue-900/50 rounded-lg">
+                    <i class="fa-solid fa-plug-circle-xmark text-4xl mb-3 block text-blue-500"></i> 
+                    Atención: No se pudo conectar con la API.<br>
+                    <span class="text-sm text-gray-400 font-normal mt-2 block">Ve a la pestaña 'Configuración' y asegúrate de tener configurada la API Key v4 de TheTVDB.</span>
+                </div>`;
+            showToast("TheTVDB no está configurado correctamente.", false);
         }
     } catch(e) {
         progressContainer.classList.add('hidden');
-        grid.innerHTML = '<div class="col-span-full p-8 text-center text-red-500 font-bold">Error de red al conectar con la API.</div>';
+        grid.innerHTML = '<div class="col-span-full p-8 text-center text-red-500 font-bold">Error de red al conectar con la API interna.</div>';
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down mr-2"></i> Buscar en API';
     }
 }
 
-/**
- * Pinta las tarjetas de resultados de la búsqueda de TheTVDB.
+/*
+ * Renderiza las tarjetas de resultados TVDB con póster, estado y acción para añadir a biblioteca.
  */
 function renderTvdbSearchResults(results) {
     const grid = document.getElementById('tvdb-search-results-grid');
@@ -49,7 +71,7 @@ function renderTvdbSearchResults(results) {
     grid.innerHTML = '';
     
     if(results.length === 0) {
-        grid.innerHTML = '<div class="col-span-full p-8 text-center text-gray-500">No se encontraron resultados en TheTVDB.</div>';
+        grid.innerHTML = '<div class="col-span-full p-8 text-center text-gray-500">No se encontraron resultados en TheTVDB. Prueba con el nombre en inglés o romaji.</div>';
         return;
     }
     
@@ -58,20 +80,22 @@ function renderTvdbSearchResults(results) {
         card.className = "group flex flex-col relative bg-[#0a0f18] rounded-lg border border-blue-900/30 shadow-md hover:border-blue-500/50 transition-all duration-300";
         
         const posterUrl = r.image_url ? `/api/ui/poster?url=${encodeURIComponent(r.image_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
+        const fallbackImg = "this.onerror=null; this.src='/static/img/Kitsunarr-logo-512x512.png';";
+        
         const year = r.year || '----';
-        const status = r.status || 'Desconocido';
+        const status = translateTvdbStatus(r.status);
 
         card.innerHTML = `
             <div class="relative aspect-[2/3] rounded-t-lg overflow-hidden bg-black">
-                <img src="${posterUrl}" alt="Poster" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 opacity-90 group-hover:opacity-100">
+                <img src="${posterUrl}" onerror="${fallbackImg}" alt="Poster" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 opacity-90 group-hover:opacity-100">
                 <div class="absolute top-2 right-2 bg-black/80 text-blue-400 text-xs font-bold px-2 py-1 rounded backdrop-blur-md border border-blue-800 shadow-lg">
                     ID: ${r.tvdb_id}
                 </div>
             </div>
             <div class="p-3 flex flex-col justify-between flex-1">
                 <div>
-                    <div class="text-white text-sm font-bold line-clamp-2 leading-tight mb-1" title="${r.name}">${r.name}</div>
-                    <div class="text-xs text-gray-500 font-mono">${year} • ${status}</div>
+                    <div class="poster-card-title mb-1" title="${r.name}">${r.name}</div>
+                    <div class="poster-card-meta text-gray-500 font-mono">${year} • ${status}</div>
                 </div>
                 <div class="mt-4 pt-3 border-t border-gray-800">
                     <button onclick="fetchTvdbMaster('${r.tvdb_id}', this)" class="w-full bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-600/50 py-2 rounded text-xs font-bold transition flex justify-center items-center">
@@ -82,11 +106,14 @@ function renderTvdbSearchResults(results) {
         `;
         grid.appendChild(card);
     });
+
+    if (typeof refreshPosterLayouts === 'function') {
+        refreshPosterLayouts();
+    }
 }
 
-/**
- * Solicita al backend que descargue la ficha completa (incluyendo capítulos) 
- * y la guarde en la base de datos local (Convierte a is_full_record=True).
+/*
+ * Descarga una ficha maestra TVDB completa y la incorpora a la biblioteca local de Kitsunarr.
  */
 async function fetchTvdbMaster(tvdb_id, btnElement) {
     const originalHtml = btnElement.innerHTML;

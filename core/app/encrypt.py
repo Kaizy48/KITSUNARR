@@ -1,6 +1,3 @@
-# ==========================================
-# IMPORTS Y CONFIGURACIÓN INICIAL
-# ==========================================
 import os
 import xml.etree.ElementTree as ET
 from cryptography.fernet import Fernet
@@ -9,24 +6,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ==========================================
-# CONFIGURACIÓN DE SEGURIDAD
-# ==========================================
-
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 SECRETS_DIR = os.getenv("KITSUNARR_SECRETS_DIR", "secrets")
 SECRETS_FILE = os.path.join(SECRETS_DIR, "secrets.xml")
 
-# ==========================================
-# GESTIÓN DE LA LLAVE MAESTRA (SECRETS.XML)
-# ==========================================
-
-"""
-Genera y recupera la llave de cifrado persistente desde un archivo XML.
-Si el archivo no existe, crea uno nuevo con una llave aleatoria de 32 bytes.
-Esta llave maestra no debe exponerse nunca al exterior.
-"""
+# ------------------------------------------------------------
+# Obtiene o crea la clave maestra persistente que Kitsunarr usa
+# para cifrar secretos locales como cookies, API keys y credenciales.
+# ------------------------------------------------------------
 def get_or_create_master_key():
     os.makedirs(SECRETS_DIR, exist_ok=True)
     
@@ -44,15 +32,19 @@ def get_or_create_master_key():
 MASTER_KEY = get_or_create_master_key()
 cipher_suite = Fernet(MASTER_KEY.encode())
 
-# ==========================================
-# FUNCIONES DE CIFRADO SIMÉTRICO (API KEYS / COOKIES)
-# ==========================================
-
+# ------------------------------------------------------------
+# Cifra un secreto antes de guardarlo en la base de datos local de
+# Kitsunarr.
+# ------------------------------------------------------------
 def encrypt_secret(plain_text: str) -> str:
     if not plain_text: 
         return ""
     return cipher_suite.encrypt(plain_text.encode()).decode()
 
+# ------------------------------------------------------------
+# Descifra un secreto guardado por Kitsunarr y mantiene compatibilidad
+# con valores antiguos que todavía estuvieran en texto plano.
+# ------------------------------------------------------------
 def decrypt_secret(cipher_text: str) -> str:
     if not cipher_text: 
         return ""
@@ -61,15 +53,18 @@ def decrypt_secret(cipher_text: str) -> str:
     except Exception:
         return cipher_text
 
-# ==========================================
-# FUNCIONES DE HASHING (CONTRASEÑA ADMIN)
-# ==========================================
-
+# ------------------------------------------------------------
+# Genera el hash seguro de la contraseña del administrador de
+# Kitsunarr.
+# ------------------------------------------------------------
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
+# ------------------------------------------------------------
+# Verifica la contraseña introducida en el login contra el hash del
+# administrador guardado por Kitsunarr.
+# ------------------------------------------------------------
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except Exception:
+    if not hashed_password:
         return False
+    return pwd_context.verify(plain_password, hashed_password)

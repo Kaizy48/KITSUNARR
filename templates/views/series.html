@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% set active_page = "cache" %}
+
+{% block title %}Estantería de Serie{% endblock %}
+{% block header_title %}ESTANTERÍA DE SERIE{% endblock %}
+
+{% block content %}
+<input type="hidden" id="current_tvdb_id" value="{{ tvdb_id }}">
+
+<div class="h-full flex flex-col">
+    
+    <div class="mb-4 flex justify-between items-center">
+        <a href="/cache" class="text-gray-400 hover:text-white transition flex items-center w-max bg-gray-900/50 px-3 py-1.5 rounded border border-gray-800 hover:border-gray-600 shadow-sm font-bold text-sm">
+            <i class="fa-solid fa-arrow-left mr-2"></i> Volver a la Caché General
+        </a>
+        
+        <div class="flex items-center space-x-2">
+            <button onclick="deleteSelectedItems()" id="btn_batch_delete_series" class="px-4 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-red-500 opacity-50 cursor-not-allowed font-bold" disabled title="Borrar Selección">
+                <i class="fa-solid fa-trash-can mr-2 text-red-500"></i> Borrar Seleccionados
+            </button>
+        </div>
+    </div>
+
+    <div class="k-panel flex-1 overflow-y-auto custom-scrollbar flex flex-col min-h-0 border-t-4 border-t-purple-500">
+        
+        <div id="series_hero_banner" class="relative w-full h-72 shrink-0 bg-black overflow-hidden hidden border-b border-gray-800">
+            
+            <img id="hero_bg" src="" class="w-full h-full object-cover opacity-60 scale-105">
+            <div class="absolute inset-0 bg-gradient-to-t from-[#0a0f18] via-[#0a0f18]/60 to-transparent"></div>
+            <div class="absolute inset-0 bg-gradient-to-r from-[#0a0f18]/80 via-transparent to-transparent"></div>
+            
+            <div class="absolute inset-0 p-8 flex gap-8 items-end">
+                
+                <div class="relative group cursor-pointer shrink-0 h-full flex flex-col justify-end" onclick="toggleHeroCheckbox(event)">
+                    <div class="absolute top-2 left-2 z-20">
+                        <input type="checkbox" id="hero_tvdb_checkbox" data-type="tvdb" onchange="toggleSeriesBatchSelection()" class="series-batch-checkbox w-5 h-5 accent-red-500 bg-black border-gray-700 rounded cursor-pointer shadow-[0_0_15px_rgba(0,0,0,1)] opacity-0 group-hover:opacity-100 checked:opacity-100 transition-opacity" onclick="event.stopPropagation()">
+                    </div>
+                    <img id="hero_poster" src="" class="h-full w-auto object-cover rounded shadow-2xl border border-gray-700 transition-transform transform group-hover:scale-105" style="aspect-ratio: 2/3;">
+                </div>
+
+                <div class="flex-1 min-w-0 pb-2 flex flex-col justify-end">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[10px] text-purple-400 font-bold uppercase tracking-wider"><i class="fa-solid fa-layer-group mr-1"></i> Ficha Maestra</span>
+                        <span id="hero_status" class="text-[10px] font-bold px-2 py-0.5 rounded border border-gray-600 bg-gray-900 text-gray-300">-</span>
+                        <span id="hero_year" class="text-[10px] font-bold px-2 py-0.5 rounded border border-gray-600 bg-gray-900 text-gray-300">-</span>
+                    </div>
+                    
+                    <h2 id="hero_title_es" class="text-3xl font-black text-white leading-tight drop-shadow-lg truncate">Cargando...</h2>
+                    <p id="hero_title_original" class="text-sm text-gray-400 italic mt-1 truncate">-</p>
+                    
+                    <div id="hero_aliases" class="flex flex-wrap gap-1.5 mt-3 hidden">
+                        </div>
+                </div>
+
+                <div class="hidden lg:flex w-1/3 max-w-lg h-full pt-4 pb-2">
+                    <div class="bg-black/40 backdrop-blur-md border border-gray-600/50 rounded-lg p-4 w-full h-full flex flex-col shadow-[0_0_20px_rgba(0,0,0,0.5)] transition-all hover:bg-black/60 hover:border-gray-500/80">
+                        <h3 class="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2 shrink-0"><i class="fa-solid fa-align-left mr-1"></i> Sinopsis Oficial</h3>
+                        <div id="hero_synopsis" class="text-xs text-gray-200 leading-relaxed overflow-y-auto custom-scrollbar pr-2 flex-1 whitespace-pre-wrap">
+                            Cargando sinopsis...
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="bg-[#05080c] border-b border-gray-800 p-4 shrink-0 flex items-center gap-4 overflow-x-auto custom-scrollbar shadow-inner">
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest shrink-0"><i class="fa-solid fa-filter mr-1"></i> Filtros:</div>
+            <div id="filter_tags_container" class="flex items-center gap-2">
+                <span class="text-[10px] text-gray-600 italic">Analizando etiquetas...</span>
+            </div>
+        </div>
+
+        <div id="shelves_container" class="p-8 space-y-10 flex-1 bg-[#0a0f18]">
+            <div class="text-center p-8 text-gray-500">
+                <i class="fa-solid fa-spinner fa-spin mr-2 text-2xl"></i><br>Montando estanterías...
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', path='js/core/tags.js') }}"></script>
+<script src="{{ url_for('static', path='js/views/series.js') }}"></script>
+{% endblock %}

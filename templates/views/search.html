@@ -6,39 +6,44 @@
 {% block header_title %}BÚSQUEDA INTERACTIVA{% endblock %}
 
 {% block content %}
-{# ========================================== #}
-{# VISTA PRINCIPAL: BÚSQUEDA INTERACTIVA      #}
-{# ========================================== #}
-{# 
-    Interfaz para realizar búsquedas manuales bajo demanda.
-    Permite al usuario forzar un raspado directo sobre el tracker en tiempo real, 
-    observar la barra de progreso de extracción, y previsualizar los resultados 
-    junto con sus metadatos (IA y TVDB) en una tabla antes de procesarlos.
-#}
-<div class="h-full flex flex-col">
-    <div class="k-panel p-6 mb-6">
-        <h2 class="text-xl font-bold text-white mb-4"><i class="fa-solid fa-magnifying-glass text-yellow-500 mr-2"></i> Búsqueda Interactiva</h2>
-        
-        <div class="flex space-x-4 mb-4">
-            <input type="text" id="interactiveSearchInput" onkeydown="if(event.key === 'Enter') runInteractiveSearch()" placeholder="Escribe el nombre del anime..." class="flex-1 bg-black border border-gray-700 rounded p-3 text-white outline-none focus:border-yellow-500 transition">
-            <button onclick="runInteractiveSearch()" id="btn_run_search" class="btn-primary glow-yellow px-8">
-                <i class="fa-solid fa-search mr-2"></i> Buscar en Tracker
-            </button>
-        </div>
+<div class="h-full flex flex-col search-layout">
+    <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 mb-3">
+        <div class="flex items-center gap-3 w-full xl:w-3/4">
+            <a href="/cache" class="text-gray-400 hover:text-white transition flex items-center w-max bg-gray-900/50 px-3 py-1.5 rounded border border-gray-800 hover:border-gray-600 shadow-sm font-bold text-sm shrink-0">
+                <i class="fa-solid fa-arrow-left mr-2"></i> Volver a Caché
+            </a>
 
-        <div id="search_progress_container" class="hidden mt-2">
-            <div class="flex justify-between text-xs mb-1">
-                <span class="text-yellow-500 font-bold" id="search_status_text">Iniciando búsqueda...</span>
-                <span class="text-gray-400" id="search_percentage">0%</span>
-            </div>
-            <div class="w-full bg-gray-800 rounded-full h-2.5 overflow-hidden">
-                <div id="search_progress_bar" class="bg-yellow-500 h-2.5 rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
+            <div class="w-full max-w-4xl flex items-stretch gap-3">
+                <div class="relative flex-1">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-3 text-gray-500"></i>
+                    <input type="text" id="interactiveSearchInput" onkeydown="if(event.key === 'Enter') runInteractiveSearch()" placeholder="Buscar torrent por nombre o ID..." class="w-full bg-black border border-gray-700 rounded-full px-4 py-2.5 pl-11 text-white text-sm outline-none focus:border-yellow-500 transition">
+                </div>
+                <button onclick="runInteractiveSearch()" id="btn_run_search" class="btn-primary glow-yellow px-8 py-2.5 rounded-full text-sm whitespace-nowrap" title="Buscar en tracker">
+                    <i class="fa-solid fa-search mr-2"></i> Buscar en Tracker
+                </button>
             </div>
         </div>
     </div>
 
-    <div class="k-panel overflow-y-auto flex-1 custom-scrollbar p-6">
-        <div id="search-results-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+    <div id="search_progress_container" class="hidden mb-3">
+        <div class="flex justify-between text-xs mb-1">
+            <span class="text-yellow-500 font-bold" id="search_status_text">Iniciando búsqueda...</span>
+            <span class="text-gray-400" id="search_percentage">0%</span>
+        </div>
+        <div class="w-full bg-gray-800 rounded-full h-2.5 overflow-hidden">
+            <div id="search_progress_bar" class="bg-yellow-500 h-2.5 rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div class="bg-[#05080c] border border-gray-800 rounded p-3 mb-4 shrink-0 flex items-center gap-4 overflow-x-auto custom-scrollbar shadow-inner" id="search_global_tags_bar">
+        <div class="text-[10px] font-bold text-gray-500 uppercase tracking-widest shrink-0"><i class="fa-solid fa-tags mr-1"></i> Filtros:</div>
+        <div id="search_filter_tags_container" class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-600 italic">Busca resultados para mostrar etiquetas...</span>
+        </div>
+    </div>
+
+    <div class="k-panel overflow-y-auto flex-1 min-h-0 custom-scrollbar p-6 search-results-zone">
+        <div id="search-results-grid" class="responsive-poster-grid">
             <div class="col-span-full text-center p-8 text-gray-500">
                 Realiza una búsqueda para interactuar con el Tracker y ver los resultados aquí.
             </div>

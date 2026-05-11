@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% set active_page = "cache" %}
+
+{% block title %}Editar Torrent{% endblock %}
+{% block header_title %}MODO EDICIÓN DE TORRENT{% endblock %}
+
+{% block content %}
+<input type="hidden" id="edit_cache_guid" value="{{ guid }}">
+
+<div class="flex flex-col w-full h-full pb-2 overflow-hidden">
+    
+    <div class="mb-4 flex justify-between items-center bg-[#0a0f18] p-3 rounded-lg border border-gray-800 shadow-md shrink-0">
+        <button onclick="goBackSmart()" class="text-gray-400 hover:text-white transition flex items-center bg-black px-4 py-2 rounded border border-gray-700 hover:border-gray-500 font-bold text-sm">
+            <i class="fa-solid fa-xmark mr-2"></i> Cancelar
+        </button>
+        
+        <div class="flex items-center space-x-2">
+            <button onclick="saveTorrentEdit()" id="btn_save_edit" class="px-6 py-2 bg-yellow-500 hover:bg-yellow-400 text-black rounded border border-yellow-600 transition text-sm font-black shadow-[0_0_15px_rgba(255,215,0,0.3)]">
+                <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar Cambios
+            </button>
+        </div>
+    </div>
+
+    <div id="edit_main_area" class="flex flex-col lg:flex-row gap-4 w-full h-full min-h-0">
+        
+        <div class="w-full lg:w-1/4 xl:w-1/5 h-full flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2 lg:pr-1 shrink-0 pb-2">
+            
+            <div class="relative w-full shrink-0 rounded-lg shadow-2xl border border-gray-700 bg-black overflow-hidden" style="aspect-ratio: 2/3;">
+                <div class="absolute top-2 left-2 bg-purple-600/80 text-white text-[10px] font-bold px-2 py-1 rounded border border-purple-800 z-10 uppercase tracking-widest shadow-lg">Modo Edición</div>
+                <img id="edit_poster" src="/static/img/Kitsunarr-logo-512x512.png" class="w-full h-full object-cover opacity-70">
+            </div>
+
+            <div class="k-panel flex flex-col border-t-2 border-t-blue-500 shrink-0 shadow-lg bg-[#0a0f18] overflow-hidden">
+                <div class="flex justify-between bg-black p-3 border-b border-gray-800">
+                    <div class="text-center w-1/2 border-r border-gray-800">
+                        <div class="text-[9px] text-green-500/70 font-bold uppercase mb-0.5"><i class="fa-solid fa-arrow-up text-green-500 mr-1"></i> Semillas</div>
+                        <div id="edit_seeders" class="text-sm font-mono text-green-400 font-bold">-</div>
+                    </div>
+                    <div class="text-center w-1/2">
+                        <div class="text-[9px] text-red-500/70 font-bold uppercase mb-0.5"><i class="fa-solid fa-arrow-down text-red-500 mr-1"></i> Pares</div>
+                        <div id="edit_leechers" class="text-sm font-mono text-red-400 font-bold">-</div>
+                    </div>
+                </div>
+                
+                <div class="p-3 grid grid-cols-2 gap-2">
+                    <div>
+                        <div class="text-[8px] text-gray-500 font-bold uppercase mb-0.5">GUID</div>
+                        <div id="edit_guid" class="text-[10px] text-white font-mono truncate">-</div>
+                    </div>
+                    <div>
+                        <div class="text-[8px] text-pink-500 font-bold uppercase mb-0.5">Freeleech</div>
+                        <div id="edit_freeleech" class="text-[10px] text-white font-bold truncate">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex-1 h-full flex flex-col gap-4 min-w-0 overflow-y-auto custom-scrollbar pr-2 pb-2">
+            
+            <div class="k-panel p-6 border-l-4 border-l-yellow-500 shrink-0">
+                <div class="mb-4 pb-4 border-b border-gray-800/50">
+                    <span class="text-[9px] text-gray-500 font-bold uppercase tracking-widest block mb-1"><i class="fa-solid fa-quote-left mr-1"></i> Título Original del Tracker (Solo Lectura)</span>
+                    <div id="edit_original_title" class="text-lg md:text-xl font-black text-gray-400 leading-tight break-words whitespace-normal mt-1">Cargando...</div>
+                </div>
+                
+                <div class="mb-4 pb-4 border-b border-gray-800/50">
+                    <label for="edit_cache_title" class="text-[10px] text-blue-400 font-bold uppercase tracking-widest block mb-2">
+                        <i class="fa-solid fa-robot mr-1"></i> Título Limpio (Procesado por IA / Sonarr)
+                    </label>
+                    <input type="text" id="edit_cache_title" class="w-full bg-black border border-gray-600 focus:border-blue-500 rounded p-2.5 text-blue-100 font-bold text-lg outline-none transition shadow-inner">
+                </div>
+
+                <div class="mb-4 pb-4 border-b border-gray-800/50 relative">
+                    <label class="text-[10px] text-blue-400 font-bold uppercase tracking-widest block mb-2">
+                        <i class="fa-solid fa-magnifying-glass-arrow-right mr-1"></i> Vincular a Ficha Maestra TVDB Oficial
+                    </label>
+                    <div class="relative w-full max-w-3xl">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-500"></i>
+                        <input type="text" id="edit_tvdb_search" autocomplete="off" oninput="filterOmnibox()" onfocus="showOmnibox()" onblur="hideOmniboxDelayed()" class="w-full bg-black border border-gray-600 focus:border-blue-500 rounded p-2.5 pl-9 text-white text-sm outline-none transition shadow-inner" placeholder="Buscar por nombre, alias o ID..."/>
+                        <input type="hidden" id="edit_tvdb_id">
+                        
+                        <div id="omnibox_dropdown" class="absolute z-50 w-full mt-1 bg-[#0a0f18] border border-blue-500/50 rounded shadow-[0_10px_40px_rgba(0,0,0,0.8)] max-h-64 overflow-y-auto custom-scrollbar hidden"></div>
+                    </div>
+
+                    <div id="omnibox_selected_badge" class="mt-2 hidden flex items-center justify-between bg-blue-900/30 border border-blue-800 rounded p-2 max-w-3xl">
+                        <div class="flex items-center">
+                            <i class="fa-solid fa-circle-check text-blue-400 mr-2 text-lg"></i>
+                            <div>
+                                <div class="text-[9px] text-blue-300 uppercase font-bold tracking-wider mb-0.5">Seleccionado</div>
+                                <div id="omnibox_selected_text" class="text-xs text-white font-bold truncate">...</div>
+                            </div>
+                        </div>
+                        <button onclick="clearOmniboxSelection()" class="text-gray-400 hover:text-red-400 px-2 transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-[10px] text-purple-400 font-bold uppercase tracking-widest block mb-2">
+                        <i class="fa-solid fa-tags mr-1"></i> Etiquetas del Torrent (Tags)
+                    </label>
+                    
+                    <div class="flex flex-wrap gap-2 mb-3 min-h-[28px]" id="edit_tags_container">
+                        </div>
+                    
+                    <div class="flex space-x-2 max-w-md mb-4">
+                        <input type="text" id="edit_new_tag" class="flex-1 bg-black border border-gray-600 focus:border-purple-500 rounded px-2 py-1.5 text-white text-xs outline-none shadow-inner" placeholder="Escribir etiqueta custom (ej. Censurado)..." onkeydown="if(event.key === 'Enter') addTag()">
+                        <button onclick="addTag()" class="bg-gray-800 hover:bg-purple-600 text-white px-3 py-1.5 rounded border border-gray-700 hover:border-purple-500 transition text-xs font-bold"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+
+                    <div class="p-3 bg-black/40 border border-gray-800 rounded-lg">
+                        <div class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-2"><i class="fa-solid fa-palette mr-1"></i> Paleta Rápida Estándar</div>
+                        <div id="edit_palette_container" class="flex flex-wrap gap-1.5">
+                            </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
+                <div class="k-panel p-3 text-center border-t border-t-gray-500 bg-gray-900/30 flex justify-between items-center px-4">
+                    <div class="text-[9px] text-gray-400 font-bold uppercase">Tamaño</div>
+                    <div id="edit_size" class="text-sm font-mono text-white font-bold">-</div>
+                </div>
+                <div class="k-panel p-3 text-center border-t border-t-blue-500 bg-gray-900/30 flex justify-between items-center px-4">
+                    <div class="text-[9px] text-blue-500/70 font-bold uppercase mr-2">Temporada</div>
+                    <input type="number" id="edit_parsed_season" class="w-16 bg-black border border-blue-500/50 focus:border-blue-400 rounded px-2 py-1 text-white text-sm font-mono text-right outline-none" placeholder="0">
+                </div>
+                <div class="k-panel p-3 border-t border-t-purple-500 bg-gray-900/30 flex justify-between items-center px-4">
+                    <div class="text-[9px] text-purple-400 font-bold uppercase">Estado IA</div>
+                    <div id="edit_ai_status" class="text-xs font-bold truncate">-</div>
+                </div>
+                <div class="k-panel p-3 border-t border-t-blue-500 bg-gray-900/30 flex justify-between items-center px-4">
+                    <div class="text-[9px] text-blue-400 font-bold uppercase">TVDB Oficial</div>
+                    <div id="edit_tvdb_status" class="text-xs font-bold truncate">-</div>
+                </div>
+            </div>
+
+            <div class="flex-1 flex flex-col lg:flex-row gap-4 min-h-[300px]">
+                <div class="flex-1 k-panel flex flex-col min-h-0 border border-gray-800 shadow-inner">
+                    <div class="bg-[#0a0f18] px-4 py-2 border-b border-gray-800 shrink-0">
+                        <h3 class="text-white font-bold text-xs"><i class="fa-solid fa-align-left text-yellow-500 mr-2"></i> Sinopsis del Uploader</h3>
+                    </div>
+                    <div class="flex-1 p-0 bg-[#05080c] flex">
+                        <textarea id="edit_cache_description" class="w-full h-full bg-transparent border-none p-4 text-xs text-gray-300 italic leading-relaxed whitespace-pre-wrap outline-none resize-none custom-scrollbar" placeholder="Corrige la descripción aquí..."></textarea>
+                    </div>
+                </div>
+                
+                <div class="flex-1 k-panel flex flex-col min-h-0 border border-gray-800 shadow-inner">
+                    <div class="bg-[#0a0f18] px-4 py-2 border-b border-gray-800 shrink-0 flex justify-between items-center">
+                        <h3 class="text-white font-bold text-xs"><i class="fa-solid fa-file-video text-blue-400 mr-2"></i> Renombrado de Archivos</h3>
+                        <span id="edit_file_count" class="text-gray-400 text-[10px] font-mono border border-gray-700 bg-black px-2 py-0.5 rounded">0</span>
+                    </div>
+                    <div class="flex-1 overflow-y-auto custom-scrollbar bg-[#05080c]">
+                        <ul id="edit_file_list" class="divide-y divide-gray-800/50 p-2">
+                            <li class="p-4 text-center text-xs text-gray-600 italic mt-4">Cargando lista de archivos...</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', path='js/core/tags.js') }}"></script>
+<script src="{{ url_for('static', path='js/views/edit_torrent.js') }}"></script>
+{% endblock %}

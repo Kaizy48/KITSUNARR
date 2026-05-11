@@ -6,15 +6,6 @@
 {% block header_title %}INDEXADORES{% endblock %}
 
 {% block content %}
-{# ========================================== #}
-{# VISTA PRINCIPAL: INDEXADORES (TRACKERS)    #}
-{# ========================================== #}
-{# 
-    Panel de gestión para los proveedores de búsqueda (Indexadores).
-    Muestra una lista de los trackers configurados, su estado de conexión 
-    en tiempo real, y proporciona controles para añadir, probar (Ping), 
-    editar o eliminar de forma segura cada integración del sistema.
-#}
 <div class="flex items-center mb-6 space-x-3">
   <button onclick="openSelectorModal()" class="btn-primary glow-yellow flex items-center">
     <i class="fa-solid fa-plus mr-2"></i> Añadir Indexador
@@ -34,7 +25,8 @@
       <tr>
         <th class="p-4 font-bold">Nombre del Indexador</th>
         <th class="p-4 font-bold text-center">Protocolo</th>
-        <th class="p-4 font-bold">Auth</th>
+        <th class="p-4 font-bold text-center">Auth</th>
+        <th class="p-4 font-bold text-center">Estado</th>
         <th class="p-4 font-bold text-right">Opciones</th>
       </tr>
     </thead>
@@ -42,23 +34,36 @@
       {% for idx in indexers %}
       <tr class="border-b border-gray-800 hover:bg-[#1a0f2e] transition group">
         <td class="p-4 font-bold text-white flex items-center" id="status-icon-{{ idx.identifier }}">
-          {% if idx.status == "ok" %}
-          <i class="fa-solid fa-earth-americas text-green-500 mr-3 text-lg" title="Estado: Online"></i>
+          {% if not idx.is_enabled or idx.status != "ok" %}
+            <i class="fa-solid fa-earth-americas text-red-500 mr-3 text-lg" title="Estado: Desactivado / Error"></i>
           {% else %}
-          <i class="fa-solid fa-earth-americas text-red-500 mr-3 text-lg" title="Estado: Error / No Conecta"></i>
-          {% endif %} {{ idx.name }}
+            <i class="fa-solid fa-earth-americas text-green-500 mr-3 text-lg" title="Estado: Operativo"></i>
+          {% endif %}
+          {{ idx.name }}
         </td>
+        
         <td class="p-4 text-center">
           <span class="px-2 py-0.5 rounded text-xs font-bold bg-green-500/10 text-green-500 border border-green-500/30">torznab</span>
         </td>
-        <td class="p-4 text-gray-400 capitalize">
+        
+        <td class="p-4 text-center text-gray-400 capitalize">
           <i class="fa-solid fa-key text-accent mr-1"></i> {{ idx.auth_type }}
         </td>
+        
+        <td class="p-4 text-center">
+            <div class="flex items-center justify-center">
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" onchange="toggleIndexer('{{ idx.identifier }}')" class="sr-only peer" {% if idx.is_enabled %}checked{% endif %}>
+                    <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-500"></div>
+                </label>
+            </div>
+        </td>
+        
         <td class="p-4 text-right space-x-4">
-          <button onclick="testIndexer('{{ idx.identifier }}', '{{ idx.name }}')" class="hover:text-white transition" title="Test (Ping Real)">
+          <button onclick="testIndexer('{{ idx.identifier }}', '{{ idx.name }}')" class="hover:text-white transition" title="Test Manual">
             <i class="fa-solid fa-vial"></i>
           </button>
-          <button onclick="openConfigModal()" class="transition text-yellow-500 hover:text-white" title="Configurar">
+                    <button onclick="openConfigModal('{{ idx.identifier }}', '{{ idx.name }}')" class="transition text-yellow-500 hover:text-white" title="Configurar">
             <i class="fa-solid fa-wrench"></i>
           </button>
           <button onclick="deleteIndexer('{{ idx.identifier }}')" class="transition text-red-500 hover:text-white" title="Eliminar">

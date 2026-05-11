@@ -12,3 +12,4 @@ cryptography
 passlib
 argon2-cffi
 PyJWT
+bencodepy

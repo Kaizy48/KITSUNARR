@@ -6,9 +6,6 @@
 {% block header_title %}CONFIGURACIÓN DE SISTEMA{% endblock %}
 
 {% block content %}
-{# ========================================== #}
-{# VISTA PRINCIPAL: CONFIGURACIÓN GLOBAL      #}
-{# ========================================== #}
 <div class="h-full grid grid-cols-1 xl:grid-cols-2 gap-6 items-start overflow-y-auto custom-scrollbar pb-6">
     
     <div class="flex flex-col space-y-6">
@@ -49,6 +46,12 @@
             </div>
             
             <div class="space-y-4">
+                <div class="rounded border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-100 leading-relaxed">
+                    <div class="font-bold uppercase tracking-wide text-yellow-400 mb-1">
+                        <i class="fa-solid fa-triangle-exclamation mr-2"></i> Aviso beta
+                    </div>
+                    Kitsunarr esta en fase beta. Al autoagregar el indexador a Sonarr, revisa los campos RSS y busqueda automatica antes de dejarlos activos: si Kitsunarr identifica mal una ficha, Sonarr podria descargar algo incorrecto.
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-2">URL Instancia</label>
@@ -95,6 +98,45 @@
         </div>
 
         <div class="k-panel p-6 w-full flex flex-col h-full">
+            <div class="flex items-start justify-between mb-6">
+                <div class="flex-1">
+                    <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-download text-blue-500 mr-2"></i> Cliente qBittorrent</h2>
+                    <p class="text-sm text-gray-400">Vincula tu cliente de descargas para habilitar la telemetría y el rescate de torrents.</p>
+                </div>
+                <div class="relative group cursor-pointer w-16 h-16 rounded-lg overflow-hidden shrink-0 ml-4 border border-gray-700 bg-black/30 flex items-center justify-center p-2">
+                    <img src="/static/img/qbittorrent-tray.svg" alt="qBittorrent Logo" class="max-w-full max-h-full object-contain">
+                    <a href="{{ sys_config.qbittorrent_url }}" target="_blank" class="absolute inset-0 bg-blue-600/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-[10px] font-bold text-white uppercase text-center p-1">Abrir WebUI</a>
+                </div>
+            </div>
+            
+            <div class="space-y-4 flex-1">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">URL WebUI (con puerto)</label>
+                    <input type="text" id="qbittorrent_url" value="{{ sys_config.qbittorrent_url if sys_config.qbittorrent_url else '' }}" placeholder="Ej: http://192.168.1.100:8080" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white text-sm outline-none focus:border-blue-500 transition shadow-inner">
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Usuario</label>
+                        <input type="text" id="qbittorrent_user" value="{{ sys_config.qbittorrent_user if sys_config.qbittorrent_user else '' }}" placeholder="admin" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white text-sm outline-none focus:border-blue-500 transition shadow-inner">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Contraseña</label>
+                        <input type="password" id="qbittorrent_password" value="{{ '********' if sys_config.qbittorrent_password else '' }}" placeholder="Contraseña" class="w-full bg-black border border-gray-700 rounded p-2.5 text-white text-sm outline-none focus:border-blue-500 transition shadow-inner">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex space-x-3 pt-6 mt-auto">
+                <button onclick="testQbittorrent()" id="btn_test_qb" class="w-1/3 bg-gray-800 hover:bg-gray-700 text-white py-2.5 rounded border border-gray-600 transition font-bold text-sm flex items-center justify-center">
+                    <i class="fa-solid fa-plug mr-2 text-blue-400"></i> Probar
+                </button>
+                <button onclick="saveQbittorrent()" id="btn_save_qb" class="w-2/3 bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white py-2.5 rounded border border-blue-600/50 transition font-bold text-sm flex items-center justify-center">
+                    <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar Cliente
+                </button>
+            </div>
+        </div>
+
+        <div class="k-panel p-6 w-full flex flex-col h-full">
             <h2 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-sliders text-yellow-500 mr-2"></i> Comportamiento de la IA</h2>
             <p class="text-sm text-gray-400 mb-6">Controla el motor LLM para habilitar el procesamiento inteligente de los títulos del tracker.</p>
             
@@ -127,7 +169,6 @@
                     <i class="fa-solid fa-code mr-2 text-purple-500 group-hover:text-purple-400 transition-colors"></i> Editar Prompt Custom
                 </button>
             </div>
-            
         </div>
 
     </div>
@@ -149,7 +190,7 @@
                     <div>
                         <h2 class="text-2xl font-normal text-white mb-2 tracking-wide">TheTVDB</h2>
                         <p class="text-sm text-gray-400">
-                            La información oficial de las series y los pósters es proporcionada por TheTVDB.com. 
+                            La información oficial de las series y los pósters es proporcionada por TheTVDB.com.
                             <a href="https://thetvdb.com/api-information" target="_blank" class="text-blue-400 hover:text-blue-300 transition">Regístrate como desarrollador</a> para obtener una clave gratuita.
                         </p>
                     </div>
@@ -196,9 +237,17 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Modelo Específico</label>
-                        <input type="text" id="ai_model" value="{{ ai_config.model_name }}" placeholder="ej. gemini-1.5-flash" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner" />
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Perfil de Modelo</label>
+                        <select id="ai_profile" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition">
+                            <option value="default">Seleccionar perfil...</option>
+                        </select>
                     </div>
+                </div>
+
+                <div id="ai_custom_model_container">
+                    <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Modelo Específico</label>
+                    <input type="text" id="ai_model" value="{{ ai_config.model_name }}" placeholder="ej. gemini-2.5-flash / gpt-4.1-mini / llama3.1:8b" class="w-full bg-black border border-gray-700 rounded p-3 text-white text-sm outline-none focus:border-yellow-500 transition shadow-inner" />
+                    <p class="text-[11px] text-gray-500 mt-2">Siempre puedes elegir el modelo manualmente. El perfil solo sugiere límites base por plan.</p>
                 </div>
 
                 <div id="ai_key_container" class="{% if ai_config.provider == 'ollama' %}hidden{% endif %}">
@@ -241,9 +290,31 @@
                 
                 <div class="bg-yellow-900/20 border border-yellow-700/50 rounded p-3">
                     <p class="text-[11px] text-gray-400 leading-relaxed text-justify">
-                        Estas variables previenen los bloqueos temporales por exceso de peticiones<br>
-                        <span class="block mt-1"><strong class="text-yellow-500 font-bold">💡 Consejo:</strong> Si utilizas esta misma API Key para otras aplicaciones, configura aquí valores <strong>menores al máximo permitido</strong> por tu plan gratuito para reservar cupo de recursos.</span>
+                        Estos límites evitan bloqueos temporales por exceso de peticiones.<br>
+                        <span class="block mt-1"><strong class="text-yellow-500 font-bold">💡 Consejo:</strong> Consulta los límites oficiales de tu <strong>modelo</strong> y <strong>proveedor</strong> (según tu plan gratuito o de pago) y configura aquí valores acordes, especialmente si compartes la misma API Key con otras aplicaciones.</span>
                     </p>
+                </div>
+
+                <div class="mt-4 bg-black/40 border border-gray-800 rounded p-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-bold text-cyan-300 uppercase tracking-wider">
+                            <i class="fa-solid fa-chart-line mr-1"></i> Uso Actual del Modelo
+                        </h4>
+                        <button type="button" onclick="loadLimitsForSelectedModel(true)" class="text-[10px] px-2 py-1 rounded border border-cyan-700 text-cyan-300 hover:bg-cyan-900/20 transition">
+                            Refrescar
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs font-mono">
+                        <div class="bg-gray-900/70 border border-gray-800 rounded px-2 py-2 text-gray-300">Req/min usadas: <span id="ai_stats_rpm_used" class="text-white">-</span></div>
+                        <div class="bg-gray-900/70 border border-gray-800 rounded px-2 py-2 text-gray-300">Tokens/min usados: <span id="ai_stats_tpm_used" class="text-white">-</span></div>
+                        <div class="bg-gray-900/70 border border-gray-800 rounded px-2 py-2 text-gray-300">Req/día usadas: <span id="ai_stats_rpd_used" class="text-white">-</span></div>
+                    </div>
+                    <div class="mt-2 text-[10px] text-gray-500 font-mono">Ventana: <span id="ai_stats_window">-</span> | Día cuota: <span id="ai_stats_day">-</span></div>
+                    <div class="mt-2 text-[10px] font-mono">
+                        Estado del modelo:
+                        <span id="ai_model_runtime_state" class="text-green-400 font-bold">Activo</span>
+                        <span id="ai_model_runtime_until" class="text-yellow-400 ml-2"></span>
+                    </div>
                 </div>
             </div>
 
@@ -251,11 +322,10 @@
                 <button onclick="resetAIQuota()" class="bg-gray-800 hover:bg-red-900 text-gray-300 hover:text-white px-6 py-2.5 rounded transition flex items-center font-bold">
                     <i class="fa-solid fa-rotate-left mr-2"></i> Resetear Cuota
                 </button>
-                <button onclick="saveAIConfig()" class="btn-primary glow-yellow px-6 py-2.5 shadow-lg flex items-center">
+                                <button id="btn_save_ai_config" onclick="saveAIConfig()" class="btn-primary glow-yellow px-6 py-2.5 shadow-lg flex items-center">
                     <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar LLM
                 </button>
             </div>
-            
         </div>
     </div>
 </div>
@@ -267,5 +337,6 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', path='js/core/modals.js') }}"></script>
 <script src="{{ url_for('static', path='js/views/config.js') }}"></script>
 {% endblock %}

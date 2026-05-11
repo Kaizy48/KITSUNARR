@@ -1,4 +1,4 @@
-/* Paleta de colores KITSUNARR */
+/* BLOQUE VARIABLES VISUALES DE KITSUNARR */
 :root {
     --bg-deep-purple: #1a0b2e;
     --bg-card-purple: #2d1b4e;
@@ -8,6 +8,12 @@
     
     --scrollbar-thumb: #452b7a; 
     --scrollbar-thumb-hover: #6b44bc;
+
+    --text-scale-factor: 1;
+    --poster-grid-gap: 1rem;
+    --poster-columns: 5;
+    --poster-font-scale: 1;
+    --poster-target-columns: 5;
 }
 
 body {
@@ -19,9 +25,7 @@ body {
     scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-/* ========================================== */
-/* SCROLLBAR GLOBAL PARA CHROME / EDGE / SAFARI */
-/* ========================================== */
+/* BLOQUE SCROLLBAR GLOBAL */
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -53,9 +57,7 @@ body {
 }
 
 
-/* ========================================== */
-/* EFECTOS Y COMPONENTES                      */
-/* ========================================== */
+/* BLOQUE COMPONENTES BASE */
 
 .glow-yellow {
     box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
@@ -101,12 +103,222 @@ body {
     border-bottom: 1px solid #452b7a;
 }
 
-/* ========================================== */
-/* PANTALLAS DE AUTENTICACIÓN (LOGIN/SETUP)   */
-/* ========================================== */
+/* BLOQUE PANTALLAS DE AUTENTICACION */
 .auth-panel {
     background: linear-gradient(145deg, #0a0f18 0%, #05080f 100%);
     border: 1px solid #1f2937;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
     border-radius: 0.75rem;
+}
+
+/* BLOQUE TIPOGRAFIA Y ESCALADO */
+
+/* Fuente principal de la interfaz sin interferir con los iconos FontAwesome. */
+body, input, button, textarea, select {
+    font-family: 'Consolas', 'Courier New', Courier, monospace !important;
+}
+.fa, .fas, .fa-solid, .fab, .fa-brands, .far, .fa-regular {
+    font-family: "Font Awesome 6 Free" !important;
+}
+.fa-brands { 
+    font-family: "Font Awesome 6 Brands" !important; 
+}
+
+/* Modos de escala visual que Kitsunarr aplica desde la preferencia del usuario. */
+html[data-text-size="compact"] {
+    --text-scale-factor: 1;
+    --poster-target-columns: 7;
+}
+html[data-text-size="normal"] {
+    --text-scale-factor: 1.12;
+    --poster-target-columns: 5;
+}
+html[data-text-size="large"] {
+    --text-scale-factor: 1.24;
+    --poster-target-columns: 3;
+}
+
+/* Variables de tamano de la etiqueta de fansub sobre tarjetas y fichas. */
+:root {
+    --fansub-font-size: 9.5px;
+    --fansub-line-height: 1.1;
+    --fansub-badge-font-size: 8px;
+    --fansub-badge-pad-x: 6px;
+    --fansub-badge-pad-y: 2px;
+    --fansub-shell-pad-x: 6px;
+    --fansub-shell-pad-y: 2px;
+    --fansub-max-width: 100%;
+}
+
+html[data-text-size="compact"] {
+    --fansub-font-size: 8px;
+    --fansub-badge-font-size: 7px;
+    --fansub-badge-pad-x: 5px;
+    --fansub-badge-pad-y: 2px;
+    --fansub-shell-pad-x: 5px;
+    --fansub-shell-pad-y: 2px;
+}
+
+html[data-text-size="normal"] {
+    --fansub-font-size: 9.5px;
+    --fansub-badge-font-size: 8px;
+    --fansub-badge-pad-x: 6px;
+    --fansub-badge-pad-y: 2px;
+    --fansub-shell-pad-x: 6px;
+    --fansub-shell-pad-y: 2px;
+}
+
+html[data-text-size="large"] {
+    --fansub-font-size: 11px;
+    --fansub-badge-font-size: 9px;
+    --fansub-badge-pad-x: 7px;
+    --fansub-badge-pad-y: 2px;
+    --fansub-shell-pad-x: 7px;
+    --fansub-shell-pad-y: 2px;
+}
+
+.fansub-badge {
+    font-size: var(--fansub-badge-font-size) !important;
+    padding: var(--fansub-badge-pad-y) var(--fansub-badge-pad-x) !important;
+    line-height: 1 !important;
+}
+
+.fansub-shell {
+    padding: var(--fansub-shell-pad-y) var(--fansub-shell-pad-x) !important;
+    max-width: var(--fansub-max-width);
+    background-color: rgba(0, 0, 0, 0.28) !important;
+    border: 1px solid rgba(234, 179, 8, 0.25) !important;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.fansub-label {
+    font-size: var(--fansub-font-size) !important;
+    line-height: var(--fansub-line-height) !important;
+    max-width: var(--fansub-max-width);
+    white-space: normal !important;
+    word-break: break-word;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+/* Tamano estable de la etiqueta de fansub en la ficha tecnica detallada. */
+.fansub-fixed {
+    --fansub-font-size: 10px;
+    --fansub-badge-font-size: 9px;
+    --fansub-badge-pad-x: 7px;
+    --fansub-badge-pad-y: 2px;
+    --fansub-shell-pad-x: 7px;
+    --fansub-shell-pad-y: 2px;
+}
+
+/* Escalado de la consola de eventos segun el modo visual activo. */
+html[data-text-size="compact"] #log-console {
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+html[data-text-size="normal"] #log-console {
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+html[data-text-size="large"] #log-console {
+    font-size: 0.94rem;
+    line-height: 1.55;
+}
+
+/* Escalado global de clases pequenas usadas por Tailwind en la interfaz. */
+.text-\[8px\] { font-size: calc(11px * var(--text-scale-factor)) !important; }
+.text-\[9px\] { font-size: calc(12px * var(--text-scale-factor)) !important; }
+.text-\[10px\] { font-size: calc(13px * var(--text-scale-factor)) !important; }
+.text-\[11px\] { font-size: calc(14px * var(--text-scale-factor)) !important; }
+
+/* Cuadricula responsive de posters controlada por las variables que calcula el frontend. */
+.responsive-poster-grid {
+    display: grid;
+    gap: var(--poster-grid-gap, 1rem);
+    grid-template-columns: repeat(var(--poster-columns, 5), minmax(0, 1fr));
+    align-content: start;
+}
+
+.responsive-poster-grid > * {
+    min-width: 0;
+}
+
+/* Escalado local de textos dentro de tarjetas de poster. */
+.responsive-poster-grid .text-\[8px\] { font-size: calc(8px * var(--poster-font-scale, 1)) !important; }
+.responsive-poster-grid .text-\[9px\] { font-size: calc(9px * var(--poster-font-scale, 1)) !important; }
+.responsive-poster-grid .text-\[10px\] { font-size: calc(10px * var(--poster-font-scale, 1)) !important; }
+.responsive-poster-grid .text-\[11px\] { font-size: calc(11px * var(--poster-font-scale, 1)) !important; }
+
+.responsive-poster-grid .text-xs {
+    font-size: calc(0.75rem * var(--poster-font-scale, 1)) !important;
+    line-height: 1.3;
+}
+
+.responsive-poster-grid .text-sm {
+    font-size: calc(0.875rem * var(--poster-font-scale, 1)) !important;
+    line-height: 1.35;
+}
+
+.responsive-poster-grid .text-base {
+    font-size: calc(1rem * var(--poster-font-scale, 1)) !important;
+    line-height: 1.4;
+}
+
+.responsive-poster-grid .poster-card-title {
+    font-size: clamp(0.78rem, calc(0.82rem * var(--poster-font-scale, 1)), 1.08rem) !important;
+    line-height: 1.35 !important;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+    text-wrap: pretty;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.responsive-poster-grid .poster-card-subtitle {
+    font-size: clamp(0.7rem, calc(0.74rem * var(--poster-font-scale, 1)), 0.92rem) !important;
+    line-height: 1.28 !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+}
+
+.responsive-poster-grid .poster-card-meta {
+    font-size: clamp(0.64rem, calc(0.68rem * var(--poster-font-scale, 1)), 0.82rem) !important;
+    line-height: 1.22 !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+}
+
+/* BLOQUE LAYOUT BUSQUEDA INTERACTIVA */
+
+.search-layout {
+    min-height: 0;
+}
+
+.search-top-zone {
+    flex: 0 0 auto;
+    max-height: 30vh;
+    overflow-y: auto;
+    padding-right: 0.125rem;
+}
+
+.search-results-zone {
+    min-height: 0;
+}
+
+@media (max-width: 1024px) {
+    .search-top-zone {
+        max-height: none;
+        overflow-y: visible;
+        padding-right: 0;
+    }
 }

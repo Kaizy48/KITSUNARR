@@ -1,12 +1,4 @@
-{# ========================================== #}
-{# COMPONENTES: MODALES DE INDEXADORES        #}
-{# ========================================== #}
 
-{# 
-    Modal de selección de indexador.
-    Muestra una cuadrícula con los trackers soportados por la aplicación 
-    para que el usuario inicie el flujo de configuración de una nueva integración.
-#}
 <div id="selectorModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50 backdrop-blur-sm">
   <div class="k-panel w-full max-w-3xl overflow-hidden shadow-2xl">
       <div class="px-6 py-4 flex justify-between items-center border-b" style="border-color: #452b7a">
@@ -14,26 +6,28 @@
           <button onclick="closeModals()" class="hover:text-white transition" style="color: var(--text-muted)"><i class="fa-solid fa-xmark text-xl"></i></button>
       </div>
       <div class="p-6">
-          <div class="grid grid-cols-2 gap-4">
-              <div onclick="openConfigModal()" class="k-panel p-4 cursor-pointer hover:border-yellow-500 transition group border">
-                  <div class="flex items-center justify-between mb-2">
-                      <h3 class="font-bold text-white group-hover:text-yellow-400 transition">Union Fansub</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              
+              <button onclick="openConfigModal('unionfansub', 'Union Fansub')" class="group relative w-full overflow-hidden rounded-xl border border-gray-800 bg-[#161b22] p-0 transition-all hover:border-yellow-500/50 hover:shadow-2xl flex items-center justify-center py-6">
+                  <div class="flex flex-col items-center justify-center space-y-3">
+                      <img src="/api/ui/poster?url=https%3A%2F%2Fstatic.unionfansub.com%2Fuff88x31.gif" alt="Unión Fansub" width="88" height="31" class="object-contain drop-shadow-md transition-transform group-hover:scale-110" onerror="this.onerror=null;this.src='/static/img/Kitsunarr-logo-48x48.png';">
+                      <div class="text-center px-4">
+                          <h3 class="text-lg font-bold text-white">Unión Fansub</h3>
+                          <p class="text-xs text-gray-400 mt-1">Tracker privado de Anime y Manga.</p>
+                      </div>
                   </div>
+                  <div class="absolute inset-0 border-2 border-transparent group-hover:border-yellow-500/20 rounded-xl transition-colors pointer-events-none"></div>
+              </button>
+
               </div>
-          </div>
       </div>
   </div>
 </div>
 
-{# 
-    Modal de configuración técnica del indexador seleccionado.
-    Permite al usuario introducir y guardar el método de autenticación 
-    (Cookie de sesión o Auto-Login) para que el scraper acceda al tracker.
-#}
 <div id="configModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50 backdrop-blur-sm">
   <div class="k-panel w-full max-w-2xl overflow-hidden shadow-2xl glow-yellow">
       <div class="px-6 py-4 flex justify-between items-center border-b" style="border-color: #452b7a">
-          <h2 class="text-lg font-bold text-white">Configurar: Union Fansub</h2>
+          <h2 id="configModalTitle" class="text-lg font-bold text-white">Configurar Indexador</h2>
           <button onclick="closeModals()" class="hover:text-white transition" style="color: var(--text-muted)"><i class="fa-solid fa-xmark text-xl"></i></button>
       </div>
       <div class="p-6 space-y-6">
@@ -42,7 +36,7 @@
           <div class="flex rounded-lg p-1 border bg-black" style="border-color: #452b7a">
               <button onclick="switchTab('cookie')" id="tab-cookie" class="flex-1 py-2 text-sm font-bold text-black" style="background-color: var(--accent-yellow)">Cookie</button>
               <button onclick="switchTab('login')" id="tab-login" class="flex-1 py-2 text-sm font-medium text-gray-400">Auto-Login</button>
-              <button class="flex-1 py-2 text-sm font-medium text-gray-600 cursor-not-allowed" title="No soportado por este tracker">API (Próximamente)</button>
+              <button class="flex-1 py-2 text-sm font-medium text-gray-600 cursor-not-allowed" title="No soportado por este tracker">API</button>
           </div>
           
           <div id="form-cookie" class="space-y-4">
@@ -52,7 +46,6 @@
           <div id="form-login" class="space-y-4 hidden">
               <input type="text" id="user_val" placeholder="Usuario" class="w-full bg-black border rounded p-2.5 text-white outline-none mb-2" style="border-color: #452b7a" autocomplete="off" />
               <input type="password" id="pass_val" placeholder="Contraseña" class="w-full bg-black border rounded p-2.5 text-white outline-none" style="border-color: #452b7a" autocomplete="new-password" />
-              
               <p class="text-xs text-gray-400 mt-2">
                   <i class="fa-solid fa-circle-info text-yellow-500 mr-1"></i> Kitsunarr usará estas credenciales para obtener la cookie de sesión automáticamente y mantenerla viva.
               </p>
