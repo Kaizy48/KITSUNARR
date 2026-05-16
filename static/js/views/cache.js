@@ -505,6 +505,279 @@ function submitExport() {
     closeExportModal();
     showToast("Generando y descargando el archivo...");
 }
+
+/*
+ * Funcion para abrir el modal de rehidratacion de fichas locales.
+ */
+function openRehydrateModal() {
+    resetRehydrateProgressUi();
+    document.getElementById('rehydrateModal').classList.remove('hidden');
+}
+/*
+ * Funcion para cerrar el modal de rehidratacion de fichas locales.
+ */
+function closeRehydrateModal() {
+    stopRehydratePolling();
+    document.getElementById('rehydrateModal').classList.add('hidden');
+}
+
+/*
+ * Funcion para limpiar el estado visual del panel de progreso de rehidratacion.
+ */
+function resetRehydrateProgressUi() {
+    const panel = document.getElementById('rehydrate_progress_panel');
+    const bar = document.getElementById('rehydrate_progress_bar');
+    const pct = document.getElementById('rehydrate_progress_percent');
+    const count = document.getElementById('rehydrate_progress_count');
+    const remaining = document.getElementById('rehydrate_progress_remaining');
+    const batch = document.getElementById('rehydrate_progress_batch_label');
+    const msg = document.getElementById('rehydrate_progress_message');
+    if (!panel || !bar || !pct || !count || !remaining || !batch || !msg) return;
+    panel.classList.add('hidden');
+    bar.style.width = '0%';
+    pct.innerText = '0%';
+    count.innerText = '0/0';
+    remaining.innerText = 'Faltan 0';
+    batch.innerText = 'Lote 0/0';
+    msg.innerText = 'En espera';
+    setRehydrateActionButtons('idle');
+}
+
+/*
+ * Funcion para mostrar y pintar el progreso de rehidratacion segun el estado del job.
+ */
+function renderRehydrateProgress(job) {
+    const panel = document.getElementById('rehydrate_progress_panel');
+    const bar = document.getElementById('rehydrate_progress_bar');
+    const pct = document.getElementById('rehydrate_progress_percent');
+    const count = document.getElementById('rehydrate_progress_count');
+    const remaining = document.getElementById('rehydrate_progress_remaining');
+    const batch = document.getElementById('rehydrate_progress_batch_label');
+    const msg = document.getElementById('rehydrate_progress_message');
+    if (!panel || !bar || !pct || !count || !remaining || !batch || !msg) return;
+
+    panel.classList.remove('hidden');
+
+    const batchPercent = Number(job.batch_percent || 0);
+    const processed = Number(job.processed || 0);
+    const total = Number(job.total || 0);
+    const remainingCount = Number(job.remaining_count || 0);
+    const currentBatch = Number(job.current_batch || 0);
+    const totalBatches = Number(job.total_batches || 0);
+
+    bar.style.width = `${Math.max(0, Math.min(100, batchPercent))}%`;
+    pct.innerText = `${Math.max(0, Math.min(100, batchPercent))}%`;
+    count.innerText = `${processed}/${total}`;
+    remaining.innerText = `Faltan ${remainingCount}`;
+    batch.innerText = `Lote ${currentBatch}/${totalBatches}`;
+    msg.innerText = job.message || 'Procesando';
+}
+
+/*
+ * Funcion para alternar controles del modal durante la ejecucion de rehidratacion.
+ */
+function setRehydrateModalBusyState(isBusy) {
+    const submitBtn = document.getElementById('btn_rehydrate_submit');
+    const radios = document.querySelectorAll('input[name="rehydrate_type"]');
+    if (submitBtn) {
+        submitBtn.disabled = isBusy;
+        submitBtn.classList.toggle('opacity-50', isBusy);
+        submitBtn.classList.toggle('cursor-not-allowed', isBusy);
+    }
+    radios.forEach(r => { r.disabled = isBusy; });
+}
+
+/*
+ * Funcion para alternar los botones de iniciar, cancelar y reanudar
+ * segun el estado actual del job de rehidratacion.
+ */
+function setRehydrateActionButtons(state) {
+    const submitBtn = document.getElementById('btn_rehydrate_submit');
+    const cancelBtn = document.getElementById('btn_rehydrate_cancel');
+    const resumeBtn = document.getElementById('btn_rehydrate_resume');
+    if (!submitBtn || !cancelBtn || !resumeBtn) return;
+
+    if (state === 'running') {
+        submitBtn.classList.add('hidden');
+        cancelBtn.classList.remove('hidden');
+        resumeBtn.classList.add('hidden');
+        return;
+    }
+    if (state === 'cancelled') {
+        submitBtn.classList.add('hidden');
+        cancelBtn.classList.add('hidden');
+        resumeBtn.classList.remove('hidden');
+        return;
+    }
+    submitBtn.classList.remove('hidden');
+    cancelBtn.classList.add('hidden');
+    resumeBtn.classList.add('hidden');
+}
+
+/*
+ * Funcion para detener el polling del progreso de rehidratacion.
+ */
+function stopRehydratePolling() {
+    if (window.rehydratePollTimer) {
+        clearInterval(window.rehydratePollTimer);
+        window.rehydratePollTimer = null;
+    }
+}
+
+/*
+ * Funcion para consultar periodicamente el estado del job de rehidratacion.
+ */
+function startRehydratePolling(jobId) {
+    stopRehydratePolling();
+    window.activeRehydrateJobId = jobId;
+
+    const pollOnce = async () => {
+        try {
+            const res = await fetch(`/api/ui/cache/rehydrate/${jobId}/status`);
+            const data = await res.json();
+            if (!data.success) {
+                stopRehydratePolling();
+                setRehydrateModalBusyState(false);
+                showToast(data.error || "No se pudo consultar el progreso.", false);
+                return;
+            }
+
+            const job = data.job || {};
+            renderRehydrateProgress(job);
+
+            if (job.status === 'completed') {
+                stopRehydratePolling();
+                setRehydrateModalBusyState(false);
+                setRehydrateActionButtons('idle');
+                const summary = `Rehidratación completada: ${job.updated || 0} actualizadas, ${job.unchanged || 0} sin cambios, ${job.skipped || 0} omitidas, ${job.failed || 0} fallidas.`;
+                showToast(summary, (job.failed || 0) === 0);
+                loadCacheGrid();
+                return;
+            }
+
+            if (job.status === 'failed') {
+                stopRehydratePolling();
+                setRehydrateModalBusyState(false);
+                setRehydrateActionButtons('idle');
+                showToast(job.error || "La rehidratación falló.", false);
+                return;
+            }
+
+            if (job.status === 'cancelled') {
+                stopRehydratePolling();
+                setRehydrateModalBusyState(false);
+                setRehydrateActionButtons('cancelled');
+                showToast(`Rehidratación pausada. Pendientes: ${job.remaining_count || 0}.`);
+                return;
+            }
+
+            if (job.status === 'running') {
+                setRehydrateActionButtons('running');
+            }
+        } catch (e) {
+            stopRehydratePolling();
+            setRehydrateModalBusyState(false);
+            setRehydrateActionButtons('idle');
+            showToast("Error de red consultando progreso.", false);
+        }
+    };
+
+    pollOnce();
+    window.rehydratePollTimer = setInterval(pollOnce, 900);
+}
+/*
+ * Funcion para iniciar la rehidratacion de fichas seleccionadas o de toda la cache.
+ */
+async function submitRehydrate() {
+    const selected = document.querySelector('input[name="rehydrate_type"]:checked');
+    const mode = selected ? selected.value : 'selected';
+    const selectedGuids = Array.from(document.querySelectorAll('.batch-checkbox:checked')).map(cb => cb.value);
+
+    if (mode === 'selected' && selectedGuids.length === 0) {
+        showToast("Marca al menos una ficha para rehidratar.", false);
+        return;
+    }
+
+    const confirmMessage = mode === 'all'
+        ? '¿Rehidratar TODAS las fichas de la caché local? Este proceso puede tardar varios minutos.'
+        : `¿Rehidratar ${selectedGuids.length} ficha(s) seleccionada(s)?`;
+    const accepted = await appConfirm(confirmMessage, 'Confirmar rehidratación');
+    if (!accepted) return;
+
+    setRehydrateModalBusyState(true);
+    setRehydrateActionButtons('running');
+    showToast("Iniciando rehidratación de fichas...");
+
+    try {
+        const payload = { mode: mode, guids: mode === 'selected' ? selectedGuids : [] };
+        const res = await fetch('/api/ui/cache/rehydrate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+            setRehydrateModalBusyState(false);
+            setRehydrateActionButtons('idle');
+            showToast(data.error || "No se pudo rehidratar la caché.", false);
+            return;
+        }
+        startRehydratePolling(data.job_id);
+    } catch (e) {
+        setRehydrateModalBusyState(false);
+        setRehydrateActionButtons('idle');
+        showToast("Error de red durante la rehidratación.", false);
+    }
+}
+
+/*
+ * Funcion para solicitar la cancelacion de un job de rehidratacion en curso.
+ */
+async function cancelRehydrateJob() {
+    const jobId = window.activeRehydrateJobId;
+    if (!jobId) return;
+
+    try {
+        const res = await fetch(`/api/ui/cache/rehydrate/${jobId}/cancel`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.error || "No se pudo cancelar el job.", false);
+            return;
+        }
+        showToast("Cancelación solicitada. Esperando cierre de ficha actual...");
+    } catch (e) {
+        showToast("Error de red al cancelar rehidratación.", false);
+    }
+}
+
+/*
+ * Funcion para reanudar un job cancelado desde los elementos pendientes.
+ */
+async function resumeRehydrateJob() {
+    const jobId = window.activeRehydrateJobId;
+    if (!jobId) return;
+
+    setRehydrateModalBusyState(true);
+    setRehydrateActionButtons('running');
+
+    try {
+        const res = await fetch(`/api/ui/cache/rehydrate/${jobId}/resume`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            setRehydrateModalBusyState(false);
+            setRehydrateActionButtons('cancelled');
+            showToast(data.error || "No se pudo reanudar el job.", false);
+            return;
+        }
+        showToast("Reanudación iniciada.");
+        startRehydratePolling(jobId);
+    } catch (e) {
+        setRehydrateModalBusyState(false);
+        setRehydrateActionButtons('cancelled');
+        showToast("Error de red al reanudar.", false);
+    }
+}
 /*
  * Funcion para importar un backup JSON en la cache local de KITSUNARR.
  */

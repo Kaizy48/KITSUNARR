@@ -2,6 +2,8 @@ import hashlib
 import asyncio
 import httpx
 import bencodepy
+import re
+import uuid
 from fastapi import APIRouter, Request, Response, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -21,6 +23,9 @@ from services.tvdb.tvdb_api import fetch_full_tvdb_series
 from core.app.export import export_torrents_only, export_tvdb_only, export_full_bundle, import_relational_data
 
 router = APIRouter(prefix="/api/ui", tags=["UI Torrents"])
+REHYDRATE_BATCH_SIZE = 100
+_rehydrate_jobs: dict[str, dict] = {}
+_rehydrate_jobs_lock = asyncio.Lock()
 
 DEFAULT_POSTER_PATH = "static/img/Kitsunarr-logo-512x512.png"
 PLACEHOLDER_POSTER_PATTERNS = (
@@ -99,14 +104,14 @@ def _enrich_torrent_for_ui(t: TorrentCache) -> dict:
 async def _login_qbittorrent_from_config(session: Session) -> tuple[Optional[SystemConfig], Optional[str], Optional[str]]:
     config = session.exec(select(SystemConfig)).first()
     if not config or not config.qbittorrent_url:
-        return config, None, "qBittorrent no estÃ¡ configurado."
+        return config, None, "qBittorrent no esta configurado."
     if not config.qbittorrent_user or not config.qbittorrent_password:
-        return config, None, "Faltan usuario o contraseÃ±a de qBittorrent."
+        return config, None, "Faltan usuario o contrasena de qBittorrent."
 
     password = decrypt_secret(config.qbittorrent_password)
     sid = await qbittorrent_login(config.qbittorrent_url, config.qbittorrent_user, password)
-    if not sid:
-        return config, None, "No se pudo iniciar sesiÃ³n en qBittorrent."
+    if sid is None:
+        return config, None, "No se pudo iniciar sesion en qBittorrent."
     return config, sid, None
 
 
@@ -220,7 +225,7 @@ async def get_torrent_detail(guid: str):
         telemetry_ratio = None
         if t.info_hash:
             sys_config, sid, qb_error = await _login_qbittorrent_from_config(session)
-            if sid and sys_config:
+            if sid is not None and sys_config:
                 telemetry = await get_torrent_telemetry(sys_config.qbittorrent_url, sid, t.info_hash)
                 telemetry_ratio = telemetry.get("ratio") if telemetry else None
                 _apply_telemetry_to_torrent(t, telemetry)
@@ -359,6 +364,8 @@ async def interactive_ui_search(q: str, request: Request):
                             download_url=f"{base_url}/api/download/{guid}_base",
                             pub_date=r.get("publish_date"),
                             size_bytes=r.get("size_bytes", 0),
+                            peers_seeds=int(r.get("seeders") or 0),
+                            peers_leechs=int(r.get("leechers") or 0),
                             raw_filenames=r.get("raw_filenames"),
                             tags=r.get("tags")
                         )
@@ -391,6 +398,14 @@ async def interactive_ui_search(q: str, request: Request):
                             updated = True
                         if r.get("publish_date") and not db_t.pub_date:
                             db_t.pub_date = r.get("publish_date")
+                            updated = True
+                        incoming_seeders = int(r.get("seeders") or 0)
+                        incoming_leechers = int(r.get("leechers") or 0)
+                        if db_t.peers_seeds != incoming_seeders:
+                            db_t.peers_seeds = incoming_seeders
+                            updated = True
+                        if db_t.peers_leechs != incoming_leechers:
+                            db_t.peers_leechs = incoming_leechers
                             updated = True
                         incoming_fansub = r.get("fansub") or idx.name
                         if incoming_fansub and db_t.fansub_name != incoming_fansub:
@@ -533,6 +548,420 @@ class PairTorrentForm(BaseModel):
     info_hash: str
 
 # ------------------------------------------------------------
+# Datos para lanzar una rehidratación de fichas en caché, ya sea de
+# un conjunto seleccionado o de todas las fichas locales.
+# ------------------------------------------------------------
+class RehydrateForm(BaseModel):
+    mode: str
+    guids: Optional[list[str]] = None
+
+# ------------------------------------------------------------
+# Devuelve una lista de lotes consecutivos con tamaño máximo fijo.
+# ------------------------------------------------------------
+def _chunk_guids(values: list[str], batch_size: int) -> list[list[str]]:
+    if batch_size <= 0:
+        return [values]
+    return [values[i:i + batch_size] for i in range(0, len(values), batch_size)]
+
+# ------------------------------------------------------------
+# Actualiza de forma segura el estado runtime de un job de
+# rehidratación para que la UI lo consulte por polling.
+# ------------------------------------------------------------
+async def _update_rehydrate_job(job_id: str, updates: dict):
+    async with _rehydrate_jobs_lock:
+        job = _rehydrate_jobs.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+
+# ------------------------------------------------------------
+# Crea el estado inicial de un job de rehidratación y lo registra en
+# memoria para seguimiento de progreso.
+# ------------------------------------------------------------
+async def _create_rehydrate_job(mode: str, wanted_guids: list[str]) -> str:
+    job_id = uuid.uuid4().hex
+    now_iso = datetime.utcnow().isoformat()
+    async with _rehydrate_jobs_lock:
+        _rehydrate_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "mode": mode,
+            "wanted_guids": wanted_guids,
+            "created_at": now_iso,
+            "started_at": None,
+            "finished_at": None,
+            "total": 0,
+            "remaining_count": 0,
+            "remaining_guids": [],
+            "processed": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "skipped": 0,
+            "failed": 0,
+            "batch_size": REHYDRATE_BATCH_SIZE,
+            "current_batch": 0,
+            "total_batches": 0,
+            "current_batch_total": 0,
+            "current_batch_processed": 0,
+            "batch_percent": 0,
+            "percent_total": 0,
+            "message": "En cola",
+            "error": None,
+            "cancel_requested": False,
+        }
+    return job_id
+
+# ------------------------------------------------------------
+# Normaliza el source_guid real de una ficha de caché para que el
+# indexador pueda ir directo a la URL de detalles del tracker.
+# ------------------------------------------------------------
+def _resolve_source_guid_for_rehydrate(torrent: TorrentCache) -> str:
+    if torrent.source_guid:
+        return str(torrent.source_guid).strip()
+    guid = str(torrent.guid or "").strip()
+    if "-" in guid:
+        return guid.split("-", 1)[1].strip()
+    return guid
+
+# ------------------------------------------------------------
+# Ejecuta en segundo plano la rehidratación de fichas y actualiza el
+# estado del job para que la UI muestre progreso por lotes y total.
+# ------------------------------------------------------------
+async def _run_rehydrate_job(job_id: str):
+    async with _rehydrate_jobs_lock:
+        job = _rehydrate_jobs.get(job_id)
+        if not job:
+            return
+        mode = job.get("mode", "selected")
+        wanted_guids = list(job.get("wanted_guids") or [])
+        job["status"] = "running"
+        job["started_at"] = datetime.utcnow().isoformat()
+        job["message"] = "Preparando lotes"
+        job["cancel_requested"] = False
+
+    try:
+        async with _rehydrate_jobs_lock:
+            existing_queue = list(_rehydrate_jobs.get(job_id, {}).get("remaining_guids") or [])
+
+        if existing_queue:
+            guid_queue = [str(g).strip() for g in existing_queue if str(g).strip()]
+        else:
+            with Session(engine) as session:
+                if mode == "selected":
+                    torrents = session.exec(
+                        select(TorrentCache).where(TorrentCache.guid.in_(wanted_guids))
+                    ).all() if wanted_guids else []
+                else:
+                    torrents = session.exec(
+                        select(TorrentCache).order_by(desc(TorrentCache.pub_date))
+                    ).all()
+            guid_queue = [str(t.guid).strip() for t in torrents if str(t.guid).strip()]
+
+        total = len(guid_queue)
+        if total == 0:
+            await _update_rehydrate_job(job_id, {
+                "status": "failed",
+                "finished_at": datetime.utcnow().isoformat(),
+                "error": "No hay fichas para rehidratar con ese criterio.",
+                "message": "Sin fichas para procesar",
+            })
+            return
+
+        batches = _chunk_guids(guid_queue, REHYDRATE_BATCH_SIZE)
+        await _update_rehydrate_job(job_id, {
+            "total": total,
+            "remaining_count": total,
+            "remaining_guids": list(guid_queue),
+            "total_batches": len(batches),
+            "message": "Procesando fichas",
+        })
+
+        processed = 0
+        updated = 0
+        unchanged = 0
+        skipped = 0
+        failed = 0
+
+        for batch_idx, batch_guids in enumerate(batches):
+            async with _rehydrate_jobs_lock:
+                job_snapshot = _rehydrate_jobs.get(job_id) or {}
+                if job_snapshot.get("cancel_requested"):
+                    await _update_rehydrate_job(job_id, {
+                        "status": "cancelled",
+                        "finished_at": datetime.utcnow().isoformat(),
+                        "message": "Rehidratación cancelada por el usuario",
+                    })
+                    logger.warning(
+                        f"⏹️ [CACHE] [REHYDRATE] Cancelado por usuario antes de lote {batch_idx + 1}/{len(batches)} | "
+                        f"procesadas={processed} | restantes={len(guid_queue) - processed}"
+                    )
+                    return
+
+            await _update_rehydrate_job(job_id, {
+                "current_batch": batch_idx + 1,
+                "current_batch_total": len(batch_guids),
+                "current_batch_processed": 0,
+                "batch_percent": 0,
+                "message": f"Procesando lote {batch_idx + 1}/{len(batches)}",
+            })
+
+            with Session(engine) as session:
+                batch_torrents = session.exec(
+                    select(TorrentCache).where(TorrentCache.guid.in_(batch_guids))
+                ).all()
+                torrents_by_guid = {t.guid: t for t in batch_torrents}
+
+                indexer_ids = sorted({
+                    (t.indexer or "").strip()
+                    for t in batch_torrents
+                    if (t.indexer or "").strip()
+                })
+                indexer_configs = {}
+                for idx_id in indexer_ids:
+                    idx_conf = session.exec(
+                        select(IndexerConfig).where(IndexerConfig.identifier == idx_id)
+                    ).first()
+                    if idx_conf:
+                        indexer_configs[idx_id] = idx_conf
+
+                for pos, guid in enumerate(batch_guids):
+                    async with _rehydrate_jobs_lock:
+                        job_snapshot = _rehydrate_jobs.get(job_id) or {}
+                        if job_snapshot.get("cancel_requested"):
+                            remaining_tail = [x for x in guid_queue[processed:] if str(x).strip()]
+                            await _update_rehydrate_job(job_id, {
+                                "status": "cancelled",
+                                "finished_at": datetime.utcnow().isoformat(),
+                                "remaining_guids": remaining_tail,
+                                "remaining_count": len(remaining_tail),
+                                "message": "Rehidratación cancelada por el usuario",
+                            })
+                            logger.warning(
+                                f"⏹️ [CACHE] [REHYDRATE] Cancelado por usuario en lote {batch_idx + 1}/{len(batches)} | "
+                                f"procesadas={processed} | restantes={len(remaining_tail)}"
+                            )
+                            return
+
+                    t = torrents_by_guid.get(guid)
+                    if not t:
+                        processed += 1
+                        skipped += 1
+                        remaining_now = max(0, total - processed)
+                        await _update_rehydrate_job(job_id, {
+                            "processed": processed,
+                            "skipped": skipped,
+                            "remaining_count": remaining_now,
+                            "remaining_guids": [x for x in guid_queue[processed:] if str(x).strip()],
+                            "current_batch_processed": pos + 1,
+                            "batch_percent": int(((pos + 1) / max(1, len(batch_guids))) * 100),
+                            "percent_total": int((processed / max(1, total)) * 100),
+                        })
+                        continue
+
+                    idx_id = (t.indexer or "").strip()
+                    display_title = (t.original_title or t.enriched_title or f"Torrent {t.guid}").strip()
+
+                    if not idx_id:
+                        skipped += 1
+                        logger.warning(f"⚠️ [CACHE] [REHYDRATE] SKIP | ID={t.guid} | Título='{display_title}' | Motivo='Sin indexador'.")
+                    else:
+                        indexer = indexer_manager.get_indexer(idx_id)
+                        idx_conf = indexer_configs.get(idx_id)
+
+                        if not indexer:
+                            skipped += 1
+                            logger.warning(f"⚠️ [CACHE] [REHYDRATE] SKIP | ID={t.guid} | Título='{display_title}' | Motivo='Indexador no implementado: {idx_id}'.")
+                        elif not idx_conf:
+                            skipped += 1
+                            logger.warning(f"⚠️ [CACHE] [REHYDRATE] SKIP | ID={t.guid} | Título='{display_title}' | Motivo='Indexador no configurado: {idx_id}'.")
+                        elif not hasattr(indexer, "rehydrate_torrent"):
+                            skipped += 1
+                            logger.warning(f"⚠️ [CACHE] [REHYDRATE] SKIP | ID={t.guid} | Título='{display_title}' | Motivo='Indexador sin soporte de rehidratación: {idx_id}'.")
+                        else:
+                            source_guid = _resolve_source_guid_for_rehydrate(t)
+                            if not source_guid:
+                                skipped += 1
+                                logger.warning(f"⚠️ [CACHE] [REHYDRATE] SKIP | ID={t.guid} | Título='{display_title}' | Motivo='No se pudo resolver source_guid'.")
+                            else:
+                                tracker_cookie = decrypt_secret(idx_conf.cookie_string) if idx_conf.cookie_string else ""
+                                base_title = (t.enriched_title or t.original_title or "").strip()
+                                base_title = re.sub(r"\s*\[[^\]]+\]\s*$", "", base_title).strip()
+
+                                payload = await indexer.rehydrate_torrent(
+                                    source_guid=source_guid,
+                                    cookie_string=tracker_cookie,
+                                    base_title=base_title,
+                                    current_original_title=t.original_title or "",
+                                )
+                                
+                                await asyncio.sleep(0.5)
+                                
+                                if not payload:
+                                    failed += 1
+                                    logger.error(f"❌ [CACHE] [REHYDRATE] MISS | ID={t.guid} | Título='{display_title}' | source_guid={source_guid}")
+                                else:
+                                    changed = False
+                                    if payload.get("title") and t.enriched_title != payload.get("title"):
+                                        t.enriched_title = payload.get("title")
+                                        changed = True
+                                    if payload.get("original_title") and t.original_title != payload.get("original_title"):
+                                        t.original_title = payload.get("original_title")
+                                        changed = True
+                                    if payload.get("description") and t.description != payload.get("description"):
+                                        t.description = payload.get("description")
+                                        changed = True
+                                    if payload.get("poster_url") and t.poster_url != payload.get("poster_url"):
+                                        t.poster_url = payload.get("poster_url")
+                                        changed = True
+                                    if payload.get("size_bytes") is not None and payload.get("size_bytes", 0) > 0 and t.size_bytes != payload.get("size_bytes"):
+                                        t.size_bytes = payload.get("size_bytes")
+                                        changed = True
+                                    incoming_seeders = int(payload.get("seeders") or 0)
+                                    incoming_leechers = int(payload.get("leechers") or 0)
+                                    if t.peers_seeds != incoming_seeders:
+                                        t.peers_seeds = incoming_seeders
+                                        changed = True
+                                    if t.peers_leechs != incoming_leechers:
+                                        t.peers_leechs = incoming_leechers
+                                        changed = True
+                                    if payload.get("publish_date") and t.pub_date != payload.get("publish_date"):
+                                        t.pub_date = payload.get("publish_date")
+                                        changed = True
+                                    if payload.get("freeleech_until") is not None and t.freeleech_until != payload.get("freeleech_until"):
+                                        t.freeleech_until = payload.get("freeleech_until")
+                                        changed = True
+                                    if payload.get("raw_filenames") and t.raw_filenames != payload.get("raw_filenames"):
+                                        t.raw_filenames = payload.get("raw_filenames")
+                                        changed = True
+                                    if payload.get("tags") and t.tags != payload.get("tags"):
+                                        t.tags = payload.get("tags")
+                                        changed = True
+
+                                    source_label = payload.get("source_guid") or source_guid
+                                    if changed:
+                                        session.add(t)
+                                        session.commit()
+                                        updated += 1
+                                        logger.info(f"♻️ [CACHE] [REHYDRATE] HIT | ID={t.guid} | Título='{(t.original_title or display_title).strip()}' | source_guid={source_label}")
+                                    else:
+                                        unchanged += 1
+                                        logger.info(f"ℹ️ [CACHE] [REHYDRATE] HIT-SIN-CAMBIOS | ID={t.guid} | Título='{display_title}' | source_guid={source_label}")
+
+                    processed += 1
+                    remaining_now = max(0, total - processed)
+                    remaining_queue = [x for x in guid_queue[processed:] if str(x).strip()]
+                    await _update_rehydrate_job(job_id, {
+                        "processed": processed,
+                        "updated": updated,
+                        "unchanged": unchanged,
+                        "skipped": skipped,
+                        "failed": failed,
+                        "remaining_count": remaining_now,
+                        "remaining_guids": remaining_queue,
+                        "current_batch_processed": pos + 1,
+                        "batch_percent": int(((pos + 1) / max(1, len(batch_guids))) * 100),
+                        "percent_total": int((processed / max(1, total)) * 100),
+                    })
+
+
+        await _update_rehydrate_job(job_id, {
+            "status": "completed",
+            "finished_at": datetime.utcnow().isoformat(),
+            "message": "Rehidratación completada",
+            "percent_total": 100,
+            "batch_percent": 100,
+            "remaining_count": 0,
+            "remaining_guids": [],
+        })
+        logger.info(
+            f"✅ [CACHE] [REHYDRATE] Proceso completado | modo={mode} | "
+            f"procesadas={processed} | actualizadas={updated} | sin_cambios={unchanged} | "
+            f"omitidas={skipped} | fallidas={failed}"
+        )
+    except Exception as e:
+        await _update_rehydrate_job(job_id, {
+            "status": "failed",
+            "finished_at": datetime.utcnow().isoformat(),
+            "error": str(e),
+            "message": "Error durante la rehidratación",
+        })
+        logger.error(f"❌ [CACHE] [REHYDRATE] Error crítico en job {job_id}: {e}")
+
+# ------------------------------------------------------------
+# Arranca un job de rehidratación en segundo plano y devuelve su ID
+# para que la UI siga el progreso mediante polling.
+# ------------------------------------------------------------
+@router.post("/cache/rehydrate")
+async def start_rehydrate_cache_entries(data: RehydrateForm):
+    mode = (data.mode or "").strip().lower()
+    if mode not in ["selected", "all"]:
+        return {"success": False, "error": "Modo inválido. Usa 'selected' o 'all'."}
+    if mode == "selected" and not data.guids:
+        return {"success": False, "error": "No se han recibido GUIDs para rehidratar."}
+
+    wanted_guids = [str(g).strip() for g in (data.guids or []) if str(g).strip()] if mode == "selected" else []
+    job_id = await _create_rehydrate_job(mode, wanted_guids)
+    asyncio.create_task(_run_rehydrate_job(job_id))
+    return {"success": True, "job_id": job_id}
+
+# ------------------------------------------------------------
+# Devuelve el estado actual de un job de rehidratación para mostrar
+# progreso dinámico en la interfaz de caché.
+# ------------------------------------------------------------
+@router.get("/cache/rehydrate/{job_id}/status")
+async def get_rehydrate_job_status(job_id: str):
+    async with _rehydrate_jobs_lock:
+        job = _rehydrate_jobs.get(job_id)
+        if not job:
+            return {"success": False, "error": "Job de rehidratación no encontrado."}
+        snapshot = dict(job)
+        snapshot.pop("wanted_guids", None)
+        snapshot.pop("remaining_guids", None)
+    return {"success": True, "job": snapshot}
+
+# ------------------------------------------------------------
+# Marca un job de rehidratación en curso para cancelación segura al
+# finalizar la ficha actual.
+# ------------------------------------------------------------
+@router.post("/cache/rehydrate/{job_id}/cancel")
+async def cancel_rehydrate_job(job_id: str):
+    async with _rehydrate_jobs_lock:
+        job = _rehydrate_jobs.get(job_id)
+        if not job:
+            return {"success": False, "error": "Job de rehidratación no encontrado."}
+        if job.get("status") != "running":
+            return {"success": False, "error": "Solo se puede cancelar un job en ejecución."}
+        job["cancel_requested"] = True
+        job["message"] = "Cancelación solicitada por el usuario"
+    logger.warning(f"⏸️ [CACHE] [REHYDRATE] Solicitud de cancelación recibida | job_id={job_id}")
+    return {"success": True}
+
+# ------------------------------------------------------------
+# Reanuda un job cancelado reutilizando la cola pendiente guardada en
+# memoria y manteniendo métricas acumuladas.
+# ------------------------------------------------------------
+@router.post("/cache/rehydrate/{job_id}/resume")
+async def resume_rehydrate_job(job_id: str):
+    async with _rehydrate_jobs_lock:
+        job = _rehydrate_jobs.get(job_id)
+        if not job:
+            return {"success": False, "error": "Job de rehidratación no encontrado."}
+        if job.get("status") != "cancelled":
+            return {"success": False, "error": "Solo se puede reanudar un job cancelado."}
+        remaining = list(job.get("remaining_guids") or [])
+        if not remaining:
+            return {"success": False, "error": "No hay fichas pendientes para reanudar."}
+        job["status"] = "queued"
+        job["finished_at"] = None
+        job["message"] = "Reanudación en cola"
+        job["cancel_requested"] = False
+        job["current_batch_processed"] = 0
+        job["batch_percent"] = 0
+    logger.info(f"▶️ [CACHE] [REHYDRATE] Reanudación solicitada | job_id={job_id} | pendientes={len(remaining)}")
+    asyncio.create_task(_run_rehydrate_job(job_id))
+    return {"success": True}
+
+# ------------------------------------------------------------
 # Empareja una ficha torrent con qBittorrent y actualiza su
 # telemetría inicial para mostrar el estado en Kitsunarr.
 # ------------------------------------------------------------
@@ -545,7 +974,7 @@ async def pair_torrent(data: PairTorrentForm):
 
         t.info_hash = data.info_hash.lower().strip()
         sys_config, sid, _ = await _login_qbittorrent_from_config(session)
-        if sid and sys_config:
+        if sid is not None and sys_config:
             telemetry = await get_torrent_telemetry(sys_config.qbittorrent_url, sid, t.info_hash)
             _apply_telemetry_to_torrent(t, telemetry)
         session.commit()
@@ -606,7 +1035,7 @@ async def calculate_torrent_info_hash(guid: str):
 
         indexer = indexer_manager.get_indexer(t.indexer)
         if not indexer:
-            return {"success": False, "error": f"El indexador '{t.indexer}' no estÃ¡ disponible."}
+            return {"success": False, "error": f"El indexador '{t.indexer}' no esta disponible."}
 
         idx_config = session.exec(select(IndexerConfig).where(IndexerConfig.identifier == t.indexer)).first()
         tracker_cookie = decrypt_secret(idx_config.cookie_string) if idx_config and idx_config.cookie_string else ""
@@ -618,16 +1047,16 @@ async def calculate_torrent_info_hash(guid: str):
             info_dict = torrent_data[b"info"]
             info_hash = hashlib.sha1(bencodepy.encode(info_dict)).hexdigest().lower()
         except Exception as e:
-            logger.error(f"âŒ No se pudo calcular Info Hash para {guid}: {e}")
+            logger.error(f"No se pudo calcular Info Hash para {guid}: {e}")
             return {"success": False, "error": "No se pudo descargar o procesar el .torrent origen."}
 
         t.info_hash = info_hash
         sys_config, sid, _ = await _login_qbittorrent_from_config(session)
-        if sid and sys_config:
+        if sid is not None and sys_config:
             telemetry = await get_torrent_telemetry(sys_config.qbittorrent_url, sid, info_hash)
             _apply_telemetry_to_torrent(t, telemetry)
 
         session.add(t)
         session.commit()
-        logger.info(f"âœ… Info Hash calculado manualmente para {guid}: {info_hash}")
+        logger.info(f"Info Hash calculado manualmente para {guid}: {info_hash}")
         return {"success": True, "info_hash": info_hash}

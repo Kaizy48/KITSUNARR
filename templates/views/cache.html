@@ -23,6 +23,9 @@
             <button onclick="openExportModal()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-green-500 font-bold shadow-sm" title="Exportar JSON">
                 <i class="fa-solid fa-file-export mr-1 text-green-400"></i> Exportar
             </button>
+            <button onclick="openRehydrateModal()" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-cyan-500 font-bold shadow-sm" title="Rehidratar fichas">
+                <i class="fa-solid fa-droplet mr-1 text-cyan-400"></i> Rehidratar
+            </button>
             
             <button onclick="deleteBatchSelection()" id="btn_batch_delete" class="px-3 py-1.5 bg-black text-white rounded border border-gray-600 transition text-sm hover:border-red-500 opacity-50 cursor-not-allowed font-bold shadow-sm" disabled title="Borrar Selección">
                 <i class="fa-solid fa-trash-can mr-1 text-red-500"></i> Borrar
@@ -98,6 +101,65 @@
             <button onclick="closeExportModal()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-bold rounded transition">Cancelar</button>
             <button onclick="submitExport()" class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-bold rounded shadow-lg transition flex items-center">
                 <i class="fa-solid fa-file-arrow-down mr-2"></i> Generar JSON
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="rehydrateModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-[100] backdrop-blur-sm p-4">
+    <div class="k-panel w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col border border-cyan-900/50">
+        <div class="px-6 py-4 flex justify-between items-center border-b border-gray-800 bg-cyan-900/20">
+            <h2 class="text-lg font-bold text-cyan-300"><i class="fa-solid fa-droplet mr-2"></i> Rehidratar Fichas de Caché</h2>
+            <button onclick="closeRehydrateModal()" class="text-gray-400 hover:text-white transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+            <p class="text-sm text-gray-300 mb-2">
+                Selecciona el alcance de la rehidratación. El proceso volverá a raspar cada ficha en el tracker para refrescar metadatos como descripción, fecha, tags, archivos y portada.
+            </p>
+            <label class="flex items-start p-4 border border-gray-700 rounded-lg cursor-pointer hover:bg-gray-800/50 transition">
+                <div class="flex-shrink-0 mt-1 mr-4">
+                    <input type="radio" name="rehydrate_type" value="selected" checked class="w-4 h-4 text-cyan-500 bg-gray-900 border-gray-600 focus:ring-cyan-500">
+                </div>
+                <div>
+                    <div class="text-white font-bold text-sm mb-1"><i class="fa-solid fa-list-check text-cyan-300 mr-1"></i> Solo fichas seleccionadas</div>
+                    <div class="text-xs text-gray-400 leading-relaxed">Procesa únicamente las fichas marcadas con checkbox en la cuadrícula de caché.</div>
+                </div>
+            </label>
+            <label class="flex items-start p-4 border border-cyan-500/30 bg-cyan-900/10 rounded-lg cursor-pointer hover:bg-cyan-900/20 transition">
+                <div class="flex-shrink-0 mt-1 mr-4">
+                    <input type="radio" name="rehydrate_type" value="all" class="w-4 h-4 text-cyan-500 bg-gray-900 border-gray-600 focus:ring-cyan-500">
+                </div>
+                <div>
+                    <div class="text-cyan-300 font-bold text-sm mb-1"><i class="fa-solid fa-database mr-1"></i> Todas las fichas de caché</div>
+                    <div class="text-xs text-gray-400 leading-relaxed">Lanza el proceso sobre toda la base local de torrents. Recomendado solo cuando quieras una rehidratación global.</div>
+                </div>
+            </label>
+
+            <div id="rehydrate_progress_panel" class="hidden mt-2 p-4 rounded border border-cyan-700/40 bg-cyan-900/10">
+                <div class="flex items-center justify-between mb-2">
+                    <div id="rehydrate_progress_batch_label" class="text-xs font-bold text-cyan-300 uppercase tracking-wider">Lote 0/0</div>
+                    <div id="rehydrate_progress_percent" class="text-xs font-black text-cyan-200">0%</div>
+                </div>
+                <div class="w-full h-3 bg-black/50 border border-gray-800 rounded overflow-hidden">
+                    <div id="rehydrate_progress_bar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-300" style="width: 0%;"></div>
+                </div>
+                <div class="flex items-center justify-between mt-2 text-[11px] text-gray-300">
+                    <div id="rehydrate_progress_count">0/0</div>
+                    <div id="rehydrate_progress_remaining">Faltan 0</div>
+                    <div id="rehydrate_progress_message" class="text-cyan-200">En espera</div>
+                </div>
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-800 bg-black flex justify-end space-x-3">
+            <button onclick="closeRehydrateModal()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-bold rounded transition">Cancelar</button>
+            <button id="btn_rehydrate_cancel" onclick="cancelRehydrateJob()" class="hidden px-4 py-2 bg-red-700 hover:bg-red-600 text-white text-sm font-bold rounded shadow-lg transition flex items-center">
+                <i class="fa-solid fa-stop mr-2"></i> Cancelar proceso
+            </button>
+            <button id="btn_rehydrate_resume" onclick="resumeRehydrateJob()" class="hidden px-4 py-2 bg-yellow-700 hover:bg-yellow-600 text-white text-sm font-bold rounded shadow-lg transition flex items-center">
+                <i class="fa-solid fa-play mr-2"></i> Reanudar proceso
+            </button>
+            <button id="btn_rehydrate_submit" onclick="submitRehydrate()" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-bold rounded shadow-lg transition flex items-center">
+                <i class="fa-solid fa-play mr-2"></i> Iniciar rehidratación
             </button>
         </div>
     </div>

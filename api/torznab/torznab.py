@@ -292,16 +292,33 @@ async def torznab_endpoint(request: Request):
         
         for idx_conf in active_indexers:
             indexer = indexer_manager.get_indexer(idx_conf.identifier)
-            if not indexer: continue
+            if not indexer:
+                continue
                 
             cookie = decrypt_secret(idx_conf.cookie_string) if idx_conf.cookie_string else ""
             
             try:
-                results = await indexer.search(effective_query, cookie)
+                uses_deadline = hasattr(indexer, "search_with_deadline")
+                logger.info(
+                    f"⏳ [TORZNAB] Indexador '{idx_conf.name}' ejecuta búsqueda "
+                    f"con modo_deadline={'sí' if uses_deadline else 'no'}."
+                )
+                if hasattr(indexer, "search_with_deadline"):
+                    results = await indexer.search_with_deadline(effective_query, cookie)
+                else:
+                    results = await indexer.search(effective_query, cookie)
 
                 if not results and fallback_query and fallback_query != effective_query:
                     logger.info(f"🔁 [INDEXER] Sin resultados con query principal; fallback a '{fallback_query}'.")
-                    results = await indexer.search(fallback_query, cookie)
+                    if hasattr(indexer, "search_with_deadline"):
+                        results = await indexer.search_with_deadline(fallback_query, cookie)
+                    else:
+                        results = await indexer.search(fallback_query, cookie)
+
+                logger.info(
+                    f"📊 [TORZNAB] Indexador '{idx_conf.name}' devolvió {len(results)} "
+                    f"resultados para query='{effective_query or query}'."
+                )
                 
                 result_guids = [str(r.get("guid")) for r in results if r.get("guid")]
                 existing_by_guid = {}
@@ -335,6 +352,8 @@ async def torznab_endpoint(request: Request):
                             download_url=f"{base_url}/api/download/{guid}_base?apikey={system_api_key}",
                             pub_date=r.get("publish_date"),
                             size_bytes=r.get("size_bytes") or 0,
+                            peers_seeds=int(r.get("seeders") or 0),
+                            peers_leechs=int(r.get("leechers") or 0),
                             freeleech_until=r.get("freeleech_until"),
                             raw_filenames=r.get("raw_filenames"),
                             tags=r.get("tags"),
@@ -366,6 +385,14 @@ async def torznab_endpoint(request: Request):
                         if r.get("freeleech_until") and db_t.freeleech_until != r.get("freeleech_until"):
                             db_t.freeleech_until = r.get("freeleech_until")
                             updated = True
+                        incoming_seeders = int(r.get("seeders") or 0)
+                        incoming_leechers = int(r.get("leechers") or 0)
+                        if db_t.peers_seeds != incoming_seeders:
+                            db_t.peers_seeds = incoming_seeders
+                            updated = True
+                        if db_t.peers_leechs != incoming_leechers:
+                            db_t.peers_leechs = incoming_leechers
+                            updated = True
                         incoming_fansub = r.get("fansub") or idx_conf.name
                         if incoming_fansub and db_t.fansub_name != incoming_fansub:
                             db_t.fansub_name = incoming_fansub
@@ -388,6 +415,8 @@ async def torznab_endpoint(request: Request):
                         r["info_hash"] = db_t.info_hash
                         r["tags"] = db_t.tags
                         r["description"] = db_t.description or r.get("description")
+                        r["seeders"] = int(db_t.peers_seeds or 0)
+                        r["leechers"] = int(db_t.peers_leechs or 0)
 
                     if not _matches_tvsearch_constraints(r, season, episode):
                         continue

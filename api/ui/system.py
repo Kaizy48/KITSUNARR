@@ -219,7 +219,7 @@ async def test_qbittorrent(data: QBTestForm):
                 pw = decrypt_secret(sys_conf.qbittorrent_password)
 
     success = await qbittorrent_login(data.qbittorrent_url, data.qbittorrent_user, pw)
-    if success:
+    if success is not None:
         return {"success": True}
     return {"success": False, "error": "Credenciales inválidas o qBittorrent inaccesible."}
 
