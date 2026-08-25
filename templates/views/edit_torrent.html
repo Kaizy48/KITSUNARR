@@ -34,11 +34,11 @@
             <div class="k-panel flex flex-col border-t-2 border-t-blue-500 shrink-0 shadow-lg bg-[#0a0f18] overflow-hidden">
                 <div class="flex justify-between bg-black p-3 border-b border-gray-800">
                     <div class="text-center w-1/2 border-r border-gray-800">
-                        <div class="text-[9px] text-green-500/70 font-bold uppercase mb-0.5"><i class="fa-solid fa-arrow-up text-green-500 mr-1"></i> Semillas</div>
+                        <div class="text-[9px] text-green-500/70 font-bold uppercase mb-0.5"><i class="fa-solid fa-arrow-up text-green-500 mr-1"></i> Semillas tracker</div>
                         <div id="edit_seeders" class="text-sm font-mono text-green-400 font-bold">-</div>
                     </div>
                     <div class="text-center w-1/2">
-                        <div class="text-[9px] text-red-500/70 font-bold uppercase mb-0.5"><i class="fa-solid fa-arrow-down text-red-500 mr-1"></i> Pares</div>
+                        <div class="text-[9px] text-red-500/70 font-bold uppercase mb-0.5"><i class="fa-solid fa-arrow-down text-red-500 mr-1"></i> Pares tracker</div>
                         <div id="edit_leechers" class="text-sm font-mono text-red-400 font-bold">-</div>
                     </div>
                 </div>
@@ -96,9 +96,17 @@
                 </div>
 
                 <div>
-                    <label class="text-[10px] text-purple-400 font-bold uppercase tracking-widest block mb-2">
-                        <i class="fa-solid fa-tags mr-1"></i> Etiquetas del Torrent (Tags)
-                    </label>
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <label class="text-[10px] text-purple-400 font-bold uppercase tracking-widest">
+                            <i class="fa-solid fa-tags mr-1"></i> Etiquetas del Torrent (Tags)
+                        </label>
+                        <div class="flex items-center gap-3">
+                            <span id="tags_override_status" class="text-[9px] font-bold text-purple-300">Sincronizado con tracker</span>
+                            <button type="button" onclick="restoreTagsFromTracker()" class="text-[9px] font-bold text-yellow-400 hover:text-yellow-300 border border-yellow-500/40 hover:border-yellow-400 rounded px-2 py-1 transition">
+                                Usar valor del tracker
+                            </button>
+                        </div>
+                    </div>
                     
                     <div class="flex flex-wrap gap-2 mb-3 min-h-[28px]" id="edit_tags_container">
                         </div>
@@ -137,11 +145,17 @@
 
             <div class="flex-1 flex flex-col lg:flex-row gap-4 min-h-[300px]">
                 <div class="flex-1 k-panel flex flex-col min-h-0 border border-gray-800 shadow-inner">
-                    <div class="bg-[#0a0f18] px-4 py-2 border-b border-gray-800 shrink-0">
+                    <div class="bg-[#0a0f18] px-4 py-2 border-b border-gray-800 shrink-0 flex flex-wrap items-center justify-between gap-2">
                         <h3 class="text-white font-bold text-xs"><i class="fa-solid fa-align-left text-yellow-500 mr-2"></i> Sinopsis del Uploader</h3>
+                        <div class="flex items-center gap-3">
+                            <span id="description_override_status" class="text-[9px] font-bold text-purple-300">Sincronizado con tracker</span>
+                            <button type="button" onclick="restoreDescriptionFromTracker()" class="text-[9px] font-bold text-yellow-400 hover:text-yellow-300 border border-yellow-500/40 hover:border-yellow-400 rounded px-2 py-1 transition">
+                                Usar valor del tracker
+                            </button>
+                        </div>
                     </div>
                     <div class="flex-1 p-0 bg-[#05080c] flex">
-                        <textarea id="edit_cache_description" class="w-full h-full bg-transparent border-none p-4 text-xs text-gray-300 italic leading-relaxed whitespace-pre-wrap outline-none resize-none custom-scrollbar" placeholder="Corrige la descripción aquí..."></textarea>
+                        <textarea id="edit_cache_description" oninput="markDescriptionOverride()" class="w-full h-full bg-transparent border-none p-4 text-xs text-gray-300 italic leading-relaxed whitespace-pre-wrap outline-none resize-none custom-scrollbar" placeholder="Corrige la descripción aquí..."></textarea>
                     </div>
                 </div>
                 
@@ -164,6 +178,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', path='js/core/tags.js') }}"></script>
 <script src="{{ url_for('static', path='js/views/edit_torrent.js') }}"></script>
 {% endblock %}

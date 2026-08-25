@@ -14,15 +14,48 @@ const UPDATE_NOTIFIED_TAG_KEY = 'kitsunarr_last_notified_update_tag';
  */
 
 /*
- * Convierte bytes a un texto legible para tamaños de torrents y archivos.
+ * Convierte un entero de bytes a unidades binarias IEC para la WebUI
+ * (1 GiB = 1.073.741.824 bytes). Recibe un valor numérico y el número de
+ * decimales y devuelve texto localizado o "Desconocido". No altera estado, no
+ * lanza errores por entradas inválidas y depende de Number/Intl del navegador;
+ * tampoco altera el entero exacto que Torznab y la base de datos usan.
  */
 function formatBytes(bytes, decimals = 2) {
-    if (!+bytes) return '0 Bytes';
+    if (bytes === null || bytes === undefined || bytes === '') return 'Desconocido';
+    const numericBytes = Number(bytes);
+    if (!Number.isFinite(numericBytes) || numericBytes < 0) return 'Desconocido';
+    if (numericBytes === 0) return '0 Bytes';
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+    const i = Math.min(Math.floor(Math.log(numericBytes) / Math.log(k)), sizes.length - 1);
+    const formatted = (numericBytes / Math.pow(k, i)).toLocaleString('es-ES', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: dm,
+    });
+    return `${formatted} ${sizes[i]}`;
+}
+
+/*
+ * Escapa un valor no confiable antes de interpolarlo dentro de HTML o atributos.
+ * Recibe cualquier escalar, devuelve texto con cinco caracteres reservados
+ * codificados y no modifica DOM ni estado. Los callers deben seguir usando
+ * textContent cuando no necesiten markup; no valida URLs ni sustituye una CSP.
+ */
+function escapeHtml(value) {
+    const replacements = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    };
+    /*
+     * Sustituye cada carácter reservado por su entidad fija. El callback recibe
+     * una coincidencia y devuelve texto seguro, sin efectos ni errores esperados;
+     * depende solo del mapa local cerrado sobre esta llamada.
+     */
+    return String(value ?? '').replace(/[&<>"']/g, character => replacements[character]);
 }
 
 /*
@@ -43,7 +76,10 @@ function formatTime(seconds) {
 }
 
 /*
- * Muestra una notificación visual reutilizable en la interfaz de Kitsunarr.
+ * Muestra una notificación visual reutilizable. Recibe texto y resultado lógico,
+ * no devuelve valor y añade/retira DOM mediante timers; usa un icono fijo y un
+ * nodo de texto para que errores remotos no se interpreten como HTML. Si falta
+ * el contenedor recurre a alert y depende únicamente de APIs del navegador.
  */
 function showToast(message, isSuccess = true) {
     const container = document.getElementById('toast-container');
@@ -54,16 +90,31 @@ function showToast(message, isSuccess = true) {
     const iconClass = isSuccess ? 'fa-check-circle' : 'fa-triangle-exclamation';
 
     toast.className = `${colorClass} text-white px-4 py-3 rounded shadow-lg flex items-center transform transition-all duration-300 translate-y-full opacity-0 z-[100] mt-2 border border-white/20 font-bold text-sm`;
-    toast.innerHTML = `<i class="fa-solid ${iconClass} mr-2"></i> ${message}`;
+    const icon = document.createElement('i');
+    icon.className = `fa-solid ${iconClass} mr-2`;
+    toast.appendChild(icon);
+    toast.appendChild(document.createTextNode(String(message ?? '')));
     
     container.appendChild(toast);
     
+    /*
+     * Activa la transición de entrada después de insertar el toast. No recibe ni
+     * devuelve datos, muta clases y depende del nodo local aún conectado.
+     */
     setTimeout(() => {
         toast.classList.remove('translate-y-full', 'opacity-0');
     }, 10);
-    
+
+    /*
+     * Inicia la salida y agenda la retirada definitiva. No recibe ni devuelve
+     * datos; modifica/elimina el nodo y tolera que ya se haya desconectado.
+     */
     setTimeout(() => {
         toast.classList.add('opacity-0');
+        /*
+         * Retira el toast tras completar su transición. Sin entradas/salida ni
+         * errores esperados; depende del nodo capturado y remove idempotente.
+         */
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }

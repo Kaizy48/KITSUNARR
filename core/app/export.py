@@ -1,5 +1,6 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
@@ -9,34 +10,71 @@ from core.app.logger import logger
 from core.app.background import pause_worker, resume_worker
 from core.database.models import TorrentCache, TVDBCache, TVDBEpisodes, TorrentTVDBCandidates
 
-IMPORT_SCHEMA_VERSION = "0.5.0"
+IMPORT_SCHEMA_VERSION = "0.6.0"
 IMPORT_BATCH_SIZE = 75
 IMPORT_LOCK = asyncio.Lock()
 
 TORRENT_REHYDRATED_FIELDS = {
+    "download_url",
     "exists_in_client",
     "client_status",
     "progress",
+    "peers_seeds",
+    "peers_leechs",
     "download_speed",
     "upload_speed",
     "eta",
 }
 
+
 # ------------------------------------------------------------
-# Convierte fechas importadas a objetos datetime validos para que
-# Kitsunarr pueda restaurar campos temporales de cache y TVDB.
+# Devuelve el instante UTC actual sin zona para los campos legacy de export/DB.
+# No recibe entradas, no hace I/O ni muta estado, no lanza errores esperados y
+# usa datetime aware para evitar datetime.utcnow(), deprecado en Python 3.12.
+# ------------------------------------------------------------
+def _utcnow_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# ------------------------------------------------------------
+# Obtiene los nombres de campos de un modelo SQLModel en Pydantic 2 o 1.
+# Recibe la clase, devuelve un set nuevo, no produce efectos/I/O y propaga una
+# incompatibilidad real; evita acceder al atributo __fields__ deprecado en v2.
+# ------------------------------------------------------------
+def _model_field_names(model_class) -> set[str]:
+    modern_fields = getattr(model_class, "model_fields", None)
+    if modern_fields is not None:
+        return set(modern_fields)
+    return set(model_class.__fields__)
+
+
+# ------------------------------------------------------------
+# Recibe una fecha ISO/RFC 2822 legacy y devuelve datetime UTC-naive o None ante
+# ausencia/tipo/formato inválido. No hace I/O ni muta la entrada y captura los
+# errores de parseo; depende de datetime y parsedate_to_datetime para conservar
+# compatibilidad con pub_date sin inventar fechas remotas.
 # ------------------------------------------------------------
 def safe_parse_datetime(date_str: str | None):
     if not date_str:
         return None
     try:
-        return datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
     except (ValueError, TypeError):
-        return None
+        try:
+            parsed = parsedate_to_datetime(str(date_str))
+        except (ValueError, TypeError, OverflowError):
+            return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 # ------------------------------------------------------------
-# Prepara una ficha torrent para exportacion eliminando datos que
-# dependen del estado vivo del cliente qBittorrent de esta instalacion.
+# Prepara una ficha torrent portable eliminando la URL de descarga local —que
+# puede contener la API key— y toda telemetría viva de qBittorrent. Conserva
+# el snapshot del tracker, sus imágenes/archivos y los overrides del usuario.
+# Recibe un modelo y devuelve un dict nuevo; no muta DB ni hace I/O, deja que
+# jsonable_encoder propague errores de serialización y depende del listado cerrado
+# TORRENT_REHYDRATED_FIELDS para no exportar estado propio de esta instalación.
 # ------------------------------------------------------------
 def sanitize_torrent_for_export(torrent: TorrentCache) -> dict:
     data = jsonable_encoder(torrent)
@@ -45,13 +83,31 @@ def sanitize_torrent_for_export(torrent: TorrentCache) -> dict:
     return data
 
 # ------------------------------------------------------------
-# Reconstruye una ficha TorrentCache importada y adapta su enlace de
-# descarga a la instalacion actual y reinicia la telemetria viva.
+# Reconstruye una ficha TorrentCache importada, mapea pub_date legacy a
+# published_at, normaliza UTC, descarta tamaños centinela y genera una URL local
+# sin credenciales. Recibe un dict y base URL y devuelve un modelo no persistido;
+# no hace I/O ni muta la entrada, reinicia telemetría qB y filtra claves ajenas.
+# Validación/coerción final puede lanzar errores del modelo y depende de
+# safe_parse_datetime y del contrato de campos TorrentCache.
 # ------------------------------------------------------------
 def rehydrate_torrent_from_import(data: dict, base_url: str) -> TorrentCache:
     data = dict(data)
-    data["pub_date"] = str(data["pub_date"]) if data.get("pub_date") else None
-    data["freeleech_until"] = safe_parse_datetime(data.get("freeleech_until"))
+    if not data.get("published_at") and data.get("pub_date"):
+        data["published_at"] = data.get("pub_date")
+    data.pop("pub_date", None)
+    for date_field in ("published_at", "first_seen_at", "last_scraped_at", "freeleech_until"):
+        if date_field in data:
+            parsed_date = safe_parse_datetime(data.get(date_field))
+            if parsed_date is None and date_field == "first_seen_at":
+                data.pop(date_field, None)
+            else:
+                data[date_field] = parsed_date
+
+    try:
+        parsed_size = int(data["size_bytes"]) if data.get("size_bytes") is not None else None
+        data["size_bytes"] = parsed_size if parsed_size and parsed_size > 1 else None
+    except (TypeError, ValueError):
+        data["size_bytes"] = None
 
     for unknown_key in ("added_at", "updated_at", "is_freeleech", "ratio"):
         data.pop(unknown_key, None)
@@ -62,56 +118,64 @@ def rehydrate_torrent_from_import(data: dict, base_url: str) -> TorrentCache:
     data["exists_in_client"] = False
     data["client_status"] = "unknown"
     data["progress"] = 0.0
+    data["peers_seeds"] = 0
+    data["peers_leechs"] = 0
     data["download_speed"] = 0
     data["upload_speed"] = 0
     data["eta"] = 8640000
 
-    valid_fields = {f for f in TorrentCache.__fields__}
+    valid_fields = _model_field_names(TorrentCache)
     data = {k: v for k, v in data.items() if k in valid_fields}
     return TorrentCache(**data)
 
 # ------------------------------------------------------------
-# Reconstruye una ficha maestra TVDB importada y normaliza su fecha
-# de actualizacion para guardarla en la biblioteca local.
+# Recibe un dict TVDB importado y devuelve un TVDBCache nuevo no persistido con
+# last_updated normalizado. No muta la entrada ni hace I/O; la validación del
+# modelo puede fallar. Depende de safe_parse_datetime, _utcnow_naive,
+# _model_field_names y del contrato de campos TVDBCache.
 # ------------------------------------------------------------
 def rehydrate_tvdb_from_import(data: dict) -> TVDBCache:
     data = dict(data)
     parsed_last_updated = safe_parse_datetime(data.get("last_updated"))
-    data["last_updated"] = (parsed_last_updated or datetime.utcnow()).isoformat()
-    valid_fields = {f for f in TVDBCache.__fields__}
+    data["last_updated"] = (parsed_last_updated or _utcnow_naive()).isoformat()
+    valid_fields = _model_field_names(TVDBCache)
     data = {k: v for k, v in data.items() if k in valid_fields}
     return TVDBCache(**data)
 
 # ------------------------------------------------------------
-# Prepara un episodio TVDB importado eliminando claves locales y
-# filtrando campos desconocidos antes de insertarlo en Kitsunarr.
+# Recibe un dict de episodio, elimina id solo en una copia y devuelve un
+# TVDBEpisodes nuevo no persistido. No hace I/O; la validación del modelo puede
+# fallar y depende de _model_field_names y del contrato de TVDBEpisodes.
 # ------------------------------------------------------------
 def rehydrate_episode_from_import(data: dict) -> TVDBEpisodes:
     data = dict(data)
     data.pop("id", None)
-    valid_fields = {f for f in TVDBEpisodes.__fields__}
+    valid_fields = _model_field_names(TVDBEpisodes)
     data = {k: v for k, v in data.items() if k in valid_fields}
     return TVDBEpisodes(**data)
 
 # ------------------------------------------------------------
-# Prepara una relacion torrent-TVDB importada dejando solo las claves
-# que forman el vinculo local de Kitsunarr.
+# Recibe un dict de relación, filtra una copia y devuelve un
+# TorrentTVDBCandidates nuevo no persistido. No hace I/O ni muta la entrada;
+# la validación puede fallar y depende de _model_field_names y del modelo enlace.
 # ------------------------------------------------------------
 def rehydrate_candidate_from_import(data: dict) -> TorrentTVDBCandidates:
     data = dict(data)
-    valid_fields = {f for f in TorrentTVDBCandidates.__fields__}
+    valid_fields = _model_field_names(TorrentTVDBCandidates)
     data = {k: v for k, v in data.items() if k in valid_fields}
     return TorrentTVDBCandidates(**data)
 
 # ------------------------------------------------------------
-# Envuelve un paquete exportado con metadatos de version, conteos y
-# aviso de que los secretos nunca viajan dentro del JSON.
+# Recibe export_type y un dict de colecciones y devuelve un payload nuevo con
+# versión, fecha, conteos y aviso de secretos excluidos. No hace I/O ni muta el
+# contenido; len puede propagar TypeError si una colección no cumple el contrato.
+# Depende de IMPORT_SCHEMA_VERSION, TORRENT_REHYDRATED_FIELDS y _utcnow_naive.
 # ------------------------------------------------------------
 def build_export_payload(export_type: str, content: dict) -> dict:
     payload = {
         "type": export_type,
         "version": IMPORT_SCHEMA_VERSION,
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": _utcnow_naive().isoformat(),
         "generator": "kitsunarr",
         "sensitive_data": "excluded",
         "rehydrated_on_import": sorted(TORRENT_REHYDRATED_FIELDS),

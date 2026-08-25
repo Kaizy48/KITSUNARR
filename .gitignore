@@ -16,6 +16,9 @@ data/
 *.db-shm
 .DS_Store
 
+# Documentación privada de contexto de desarrollo
+/contexto.md
+
 # Credenciales y Secretos
 secrets/
 secrets.xml

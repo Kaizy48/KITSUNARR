@@ -155,7 +155,9 @@ function filterSearchGrid() {
 }
 
 /*
- * Renderiza etiquetas en las tarjetas de resultados de búsqueda.
+ * Convierte JSON de tags del tracker en badges HTML seguros. Recibe texto,
+ * devuelve markup/placeholder sin mutar DOM y captura JSON/estructura inválidos;
+ * ordena tags y depende de getTagData, sortTags y escapeHtml.
  */
 function renderCardTags(tagsJson) {
     if (!tagsJson) return '<span class="text-[9px] text-gray-700 italic px-1">Sin etiquetas</span>';
@@ -165,11 +167,17 @@ function renderCardTags(tagsJson) {
         if (!Array.isArray(parsed) || parsed.length === 0) return '<span class="text-[9px] text-gray-700 italic px-1">Sin etiquetas</span>';
 
         const sortedTags = parsed.sort(sortTags);
+        /*
+         * Convierte un tag en markup escapado. Recibe el valor iterado, devuelve
+         * string, no tiene efectos y depende de getTagData/escapeHtml. Cualquier
+         * error del catálogo o escape queda capturado por el try/catch exterior.
+         */
         return sortedTags.map(tag => {
             const tData = getTagData(tag);
+            const safeTag = escapeHtml(tag);
             return `
-                <span class="px-1.5 py-0.5 rounded text-[9px] font-bold border ${tData.style} flex items-center shadow-sm" title="${tag}">
-                    <span class="mr-1">${tData.icon}</span> <span>${tag}</span>
+                <span class="px-1.5 py-0.5 rounded text-[9px] font-bold border ${tData.style} flex items-center shadow-sm" title="${safeTag}">
+                    <span class="mr-1">${tData.icon}</span> <span>${safeTag}</span>
                 </span>
             `;
         }).join('');
@@ -183,7 +191,12 @@ function renderCardTags(tagsJson) {
  */
 
 /*
- * Renderiza la galería de torrents devueltos por la búsqueda interactiva.
+ * Objetivo: renderizar la galería de resultados de la búsqueda interactiva.
+ * Recibe la colección normalizada, no devuelve valor y reemplaza el grid; usa
+ * metadata tracker, helpers de título/tags y navegación local. Tolera vacío, pero
+ * presupone objetos validados y propaga errores DOM/helpers; no hace I/O adicional.
+ * Depende de getCleanTorrentTitle, generateWorkerIconsHtml, escapeHtml,
+ * renderCardTags y refreshPosterLayouts.
  */
 function renderSearchResults(results) {
     const grid = document.getElementById('search-results-grid');
@@ -195,14 +208,20 @@ function renderSearchResults(results) {
         return;
     }
     
-    results.forEach(t => {
-        const isFreeleech = t.freeleech_until && new Date(t.freeleech_until) > new Date();
+    for (const t of results) {
+        const isFreeleech = t.freeleech_present === true || (
+            t.freeleech_until && new Date(t.freeleech_until) > new Date()
+        );
         const card = document.createElement('div');
         card.className = "k-card group relative flex flex-col justify-between overflow-hidden shadow-lg border border-gray-800 hover:border-yellow-500/50 transition-all bg-[#0d0415]";
         
         const displayName = getCleanTorrentTitle(t);
         const iconsHtml = generateWorkerIconsHtml(t);
         const fansubName = t.fansub_name || 'TRACKER';
+        const safeDisplayName = escapeHtml(displayName);
+        const safeFansubName = escapeHtml(fansubName);
+        const safeGuid = escapeHtml(t.guid);
+        const encodedGuid = encodeURIComponent(String(t.guid ?? ''));
         const fansubOverlayHtml = `
             <div class="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black via-black/80 to-transparent p-2 pt-8 z-20 pointer-events-none">
                 <div class="text-[10px] font-bold uppercase tracking-widest drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
@@ -210,7 +229,7 @@ function renderSearchResults(results) {
                         <span class="fansub-badge inline-flex items-center rounded-sm bg-yellow-500/15 border border-yellow-500/50 text-yellow-300 font-black tracking-widest">FANSUB</span>
                     </div>
                     <div class="fansub-shell inline-block rounded">
-                        <span class="fansub-label text-yellow-300 tracking-widest">${fansubName}</span>
+                        <span class="fansub-label text-yellow-300 tracking-widest">${safeFansubName}</span>
                     </div>
                 </div>
             </div>
@@ -231,23 +250,23 @@ function renderSearchResults(results) {
                 ${fansubOverlayHtml}
 
                 <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center space-x-6 z-20 backdrop-blur-[2px]">
-                    <a href="/cache/torrent/${t.guid}" title="Ver Ficha" class="text-white hover:text-yellow-500 transition transform hover:scale-125">
+                    <a href="/cache/torrent/${encodedGuid}" title="Ver Ficha" class="text-white hover:text-yellow-500 transition transform hover:scale-125">
                         <i class="fa-solid fa-eye text-4xl drop-shadow-lg"></i>
                     </a>
-                    <a href="/cache/edit/${t.guid}" title="Editar Manualmente" class="text-white hover:text-blue-500 transition transform hover:scale-125">
+                    <a href="/cache/edit/${encodedGuid}" title="Editar Manualmente" class="text-white hover:text-blue-500 transition transform hover:scale-125">
                         <i class="fa-solid fa-pen text-4xl drop-shadow-lg"></i>
                     </a>
                 </div>
             </div>
 
             <div class="p-3 flex flex-col flex-1 bg-gradient-to-b from-[#11051c] to-[#0a0310]">
-                <div class="poster-card-title mb-2" title="${displayName}">
-                    ${displayName}
+                <div class="poster-card-title mb-2" title="${safeDisplayName}">
+                    ${safeDisplayName}
                 </div>
 
                 <div class="flex justify-between items-center mb-3">
-                    <div class="poster-card-meta text-gray-400 font-mono bg-black/50 px-2 py-0.5 rounded border border-gray-800 shadow-inner flex-1 mr-2" title="ID en el Tracker: ${t.guid}">
-                        <i class="fa-solid fa-fingerprint mr-1"></i> ${t.guid}
+                    <div class="poster-card-meta text-gray-400 font-mono bg-black/50 px-2 py-0.5 rounded border border-gray-800 shadow-inner flex-1 mr-2" title="ID en el Tracker: ${safeGuid}">
+                        <i class="fa-solid fa-fingerprint mr-1"></i> ${safeGuid}
                     </div>
                     <div class="shrink-0 bg-black/30 px-1.5 py-0.5 rounded border border-gray-800">
                         ${iconsHtml}
@@ -260,7 +279,7 @@ function renderSearchResults(results) {
             </div>
         `;
         grid.appendChild(card);
-    });
+    }
 
     if (typeof refreshPosterLayouts === 'function') {
         refreshPosterLayouts();

@@ -3,7 +3,25 @@
  */
 
 /*
- * Funcion de carga de la ficha editable para completar los campos, tags, archivos y candidatos TVDB del torrent.
+ * Convierte un JSON/array de tags en una lista para edición. Recibe cualquier
+ * valor, devuelve array o vacío y no muta DOM/estado; captura JSON inválido y no
+ * confía en su tipo. El texto se escapa posteriormente al renderizar cada tag.
+ */
+function parseEditTagList(value) {
+    if (!value) return [];
+    try {
+        const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+/*
+ * Carga por el GUID del formulario la ficha editable, snapshot, overrides,
+ * archivos y candidatos. No recibe ni devuelve valor útil; actualiza estado/DOM
+ * y abre peticiones de caché/TVDB. Errores lógicos o de red muestran toast sin
+ * persistir cambios; depende de formatBytes, tags, filelist y candidatos.
  */
 async function loadEditData() {
     const guid = document.getElementById('edit_cache_guid').value;
@@ -16,13 +34,17 @@ async function loadEditData() {
         if (data.success) {
             const t = data.torrent;
             window.currentTorrent = t;
+            window.trackerDescription = t.tracker_description || '';
+            window.trackerTags = parseEditTagList(t.tracker_tags);
+            window.descriptionOverrideActive = Boolean(t.has_description_override);
+            window.tagsOverrideActive = Boolean(t.has_tags_override);
 
             const p = document.getElementById('edit_poster');
             p.src = t.poster_url ? `/api/ui/poster?url=${encodeURIComponent(t.poster_url)}` : '/static/img/Kitsunarr-logo-512x512.png';
 
             document.getElementById('edit_guid').innerText = t.guid;
-            document.getElementById('edit_seeders').innerText = t.peers_seeds || '0';
-            document.getElementById('edit_leechers').innerText = t.peers_leechs || '0';
+            document.getElementById('edit_seeders').innerText = t.tracker_seeders ?? '-';
+            document.getElementById('edit_leechers').innerText = t.tracker_leechers ?? '-';
             document.getElementById('edit_freeleech').innerText = t.is_freeleech ? 'Activo' : 'No activo';
 
             document.getElementById('edit_original_title').innerText = getCleanTorrentTitle(t);
@@ -38,9 +60,10 @@ async function loadEditData() {
             tvdbStatusEl.innerText = (t.tvdb_status === 'Listo' && t.tvdb_id) ? `TVDB-${t.tvdb_id}` : t.tvdb_status;
             tvdbStatusEl.className = `text-xs font-bold truncate ${t.tvdb_status === 'Listo' ? 'text-green-500' : 'text-blue-400'}`;
 
-            window.currentTags = t.tags ? JSON.parse(t.tags) : [];
+            window.currentTags = parseEditTagList(t.tags);
             renderEditTags();
             renderPalette();
+            updateOverrideIndicators();
 
             document.getElementById('edit_cache_description').value = t.description || '';
             renderEditFileList(t.raw_filenames, t.rename_mapping);
@@ -60,7 +83,10 @@ async function loadEditData() {
  */
 
 /*
- * Funcion de renderizado de las etiquetas asignadas al torrent en la vista de edicion.
+ * Renderiza la lista editable de tags. No recibe ni devuelve datos; reemplaza el
+ * contenedor desde currentTags, usa estilos fijos y escapa cada texto no confiable.
+ * Una lista vacía muestra placeholder y errores DOM/catálogo se propagan. Depende de
+ * getTagData, escapeHtml y removeTag.
  */
 function renderEditTags() {
     const container = document.getElementById('edit_tags_container');
@@ -70,13 +96,18 @@ function renderEditTags() {
         container.innerHTML = '<span class="text-[10px] text-gray-600 italic py-1">Ninguna etiqueta asignada...</span>';
     }
 
+    /*
+     * Construye un badge y su botón por tag. Recibe valor/índice, no devuelve
+     * valor, añade DOM y no muta la colección. Los errores DOM/catálogo/escape se
+     * propagan a renderEditTags; depende de getTagData, escapeHtml y removeTag.
+     */
     window.currentTags.forEach((tag, index) => {
         const span = document.createElement('span');
         const tagData = getTagData(tag);
 
         span.className = `flex items-center px-2 py-0.5 rounded border text-[9px] font-bold shadow-sm ${tagData.style}`;
         span.innerHTML = `
-            <span class="mr-1.5">${tagData.icon}</span> ${tag}
+            <span class="mr-1.5">${tagData.icon}</span> ${escapeHtml(tag)}
             <button onclick="removeTag(${index})" class="ml-2 opacity-70 hover:opacity-100 hover:text-red-400 transition">
                 <i class="fa-solid fa-circle-xmark"></i>
             </button>
@@ -85,47 +116,130 @@ function renderEditTags() {
     });
 }
 /*
- * Funcion de renderizado de la paleta de etiquetas rapidas para enriquecer la ficha del torrent.
+ * Renderiza la paleta estándar y convierte clics en override local. No recibe ni
+ * devuelve datos; reemplaza DOM y muta currentTags solo desde el callback. Depende
+ * de STANDARD_TAGS, getTagData, escapeHtml, renderEditTags y
+ * updateOverrideIndicators. No hace I/O/persistencia y propaga errores DOM/helpers.
  */
 function renderPalette() {
     const container = document.getElementById('edit_palette_container');
     container.innerHTML = '';
 
+    /*
+     * Crea un botón por tag estándar. Recibe el texto iterado, no devuelve valor,
+     * añade DOM y asigna un callback sin hacer red. Los errores se propagan a
+     * renderPalette; depende de getTagData, escapeHtml y el contenedor resuelto.
+     */
     STANDARD_TAGS.forEach(tag => {
         const btn = document.createElement('button');
         const tagData = getTagData(tag);
 
         btn.className = `flex items-center text-[9px] font-bold px-2 py-0.5 rounded border shadow-sm hover:opacity-70 transition ${tagData.style}`;
-        btn.innerHTML = `<span class="mr-1.5">${tagData.icon}</span> ${tag}`;
+        btn.innerHTML = `<span class="mr-1.5">${tagData.icon}</span> ${escapeHtml(tag)}`;
 
+        /*
+         * Añade el tag del botón si no existe. Sin entradas/salida; muta ownership
+         * y currentTags y repinta la UI. Los errores de render se propagan al
+         * navegador; depende de renderEditTags y updateOverrideIndicators.
+         */
         btn.onclick = () => {
             if (!window.currentTags.includes(tag)) {
+                window.tagsOverrideActive = true;
                 window.currentTags.push(tag);
                 renderEditTags();
+                updateOverrideIndicators();
             }
         };
         container.appendChild(btn);
     });
 }
 /*
- * Funcion para anadir una etiqueta personalizada al torrent desde el formulario de edicion.
+ * Añade la etiqueta escrita en el input y marca que los tags dejan de seguir al
+ * tracker. No recibe ni devuelve valor; muta currentTags/DOM y devuelve el foco.
+ * Ignora valores vacíos o duplicados, no lanza errores esperados y depende de
+ * renderEditTags/updateOverrideIndicators.
  */
 function addTag() {
     const input = document.getElementById('edit_new_tag');
     const val = input.value.trim();
     if (val && !window.currentTags.includes(val)) {
+        window.tagsOverrideActive = true;
         window.currentTags.push(val);
         renderEditTags();
+        updateOverrideIndicators();
     }
     input.value = '';
     input.focus();
 }
 /*
- * Funcion para retirar una etiqueta del torrent durante la edicion manual.
+ * Retira una etiqueta por índice y activa el override local, incluida la lista
+ * vacía deliberada. Recibe un índice, no devuelve valor, muta currentTags/DOM y
+ * depende de renderEditTags/updateOverrideIndicators; splice tolera índices sin
+ * coincidencia y no se espera otra excepción.
  */
 function removeTag(index) {
+    window.tagsOverrideActive = true;
     window.currentTags.splice(index, 1);
     renderEditTags();
+    updateOverrideIndicators();
+}
+
+/*
+ * Actualiza las etiquetas visuales que indican si descripción y tags siguen el
+ * snapshot remoto o un override local. No recibe ni devuelve valor; muta solo DOM,
+ * tolera nodos ausentes, no persiste datos ni realiza peticiones y depende de los
+ * flags globales de ownership.
+ */
+function updateOverrideIndicators() {
+    const descriptionStatus = document.getElementById('description_override_status');
+    const tagsStatus = document.getElementById('tags_override_status');
+    if (descriptionStatus) {
+        descriptionStatus.innerText = window.descriptionOverrideActive ? 'Override local' : 'Sincronizado con tracker';
+        descriptionStatus.className = window.descriptionOverrideActive
+            ? 'text-[9px] font-bold text-yellow-400'
+            : 'text-[9px] font-bold text-purple-300';
+    }
+    if (tagsStatus) {
+        tagsStatus.innerText = window.tagsOverrideActive ? 'Override local' : 'Sincronizado con tracker';
+        tagsStatus.className = window.tagsOverrideActive
+            ? 'text-[9px] font-bold text-yellow-400'
+            : 'text-[9px] font-bold text-purple-300';
+    }
+}
+
+/*
+ * Marca la descripción como edición local cuando el usuario escribe. No recibe ni
+ * devuelve valor; muta el flag/indicador, no hace I/O ni lanza errores esperados y
+ * depende de updateOverrideIndicators. La marca viaja en el PUT posterior.
+ */
+function markDescriptionOverride() {
+    window.descriptionOverrideActive = true;
+    updateOverrideIndicators();
+}
+
+/*
+ * Restaura en el formulario la descripción remota y ordena al backend guardar
+ * NULL como override. No recibe/devuelve valor, muta formulario/flag y depende de
+ * trackerDescription/updateOverrideIndicators; requiere los nodos de la plantilla
+ * y el cambio solo se persiste al pulsar Guardar.
+ */
+function restoreDescriptionFromTracker() {
+    window.descriptionOverrideActive = false;
+    document.getElementById('edit_cache_description').value = window.trackerDescription || '';
+    updateOverrideIndicators();
+}
+
+/*
+ * Restaura la lista remota de tags y ordena al backend guardar NULL como override.
+ * No recibe/devuelve valor, muta estado/DOM y depende de renderEditTags e
+ * updateOverrideIndicators; una fuente no-array se convierte en lista vacía sin
+ * lanzar error y se clona para no mutar el snapshot en memoria.
+ */
+function restoreTagsFromTracker() {
+    window.tagsOverrideActive = false;
+    window.currentTags = Array.isArray(window.trackerTags) ? [...window.trackerTags] : [];
+    renderEditTags();
+    updateOverrideIndicators();
 }
 
 /*
@@ -133,7 +247,9 @@ function removeTag(index) {
  */
 
 /*
- * Funcion de renderizado de archivos del torrent con campos para definir nombres compatibles con Sonarr.
+ * Renderiza archivos y campos de rename. Recibe JSON remoto/manual, no devuelve
+ * valor y reemplaza lista/count; escapa texto y atributos antes de innerHTML.
+ * Ausencia/corrupción produce mensajes fijos y depende de escapeHtml.
  */
 function renderEditFileList(rawJson, mappingJson) {
     const list = document.getElementById('edit_file_list');
@@ -150,17 +266,25 @@ function renderEditFileList(rawJson, mappingJson) {
         let mapping = mappingJson ? JSON.parse(mappingJson) : {};
         countBadge.innerText = `${files.length} archivos`;
 
+        /*
+         * Crea una fila por archivo. Recibe nombre/índice, no devuelve valor, añade
+         * DOM y no modifica los JSON; depende de escapeHtml y del mapping parseado.
+         * Cualquier error queda capturado por el try/catch de renderEditFileList.
+         */
         files.forEach((filename, idx) => {
+            filename = String(filename ?? '');
             const li = document.createElement('li');
             li.className = "p-3 flex flex-col gap-2 hover:bg-white/5 transition";
 
             const isVideo = filename.endsWith('.mkv') || filename.endsWith('.mp4');
             const renamedVal = mapping[filename] || '';
+            const safeFilename = escapeHtml(filename);
+            const safeRenamedVal = escapeHtml(renamedVal);
 
             let html = `
                 <div class="flex items-start space-x-3">
                     <span class="text-[9px] font-mono text-gray-600 mt-1 shrink-0">${(idx + 1).toString().padStart(2, '0')}</span>
-                    <span class="text-[11px] text-gray-500 break-all leading-tight font-mono">${filename}</span>
+                    <span class="text-[11px] text-gray-500 break-all leading-tight font-mono">${safeFilename}</span>
                 </div>
             `;
 
@@ -168,8 +292,8 @@ function renderEditFileList(rawJson, mappingJson) {
                 html += `
                     <div class="flex items-center space-x-3 ml-4">
                         <i class="fa-solid fa-arrow-turn-up fa-rotate-90 text-[10px] text-blue-500"></i>
-                        <input type="text" data-original="${filename}" class="file-rename-input flex-1 bg-black border border-gray-700 focus:border-blue-500 rounded px-2 py-1 text-blue-300 font-mono text-[11px] outline-none" 
-                               placeholder="Nombre para Sonarr..." value="${renamedVal}">
+                        <input type="text" data-original="${safeFilename}" class="file-rename-input flex-1 bg-black border border-gray-700 focus:border-blue-500 rounded px-2 py-1 text-blue-300 font-mono text-[11px] outline-none"
+                               placeholder="Nombre para Sonarr..." value="${safeRenamedVal}">
                     </div>
                 `;
             }
@@ -368,7 +492,11 @@ function goBackSmart() {
  */
 
 /*
- * Funcion de guardado de cambios manuales del torrent en la cache local de KITSUNARR.
+ * Persiste edición manual, renombrados y ownership de descripción/tags por GUID.
+ * No recibe argumentos y devuelve Promise<void>; lee el formulario, bloquea el
+ * botón, realiza un PUT y puede mostrar toast o navegar. Los errores HTTP/lógicos
+ * se muestran y restauran el botón, mientras errores inesperados del DOM previos
+ * al try se propagan. Depende de fetch, showToast, currentTags y la plantilla.
  */
 async function saveTorrentEdit() {
     const guid = document.getElementById('edit_cache_guid').value;
@@ -400,7 +528,10 @@ async function saveTorrentEdit() {
                 parsed_season: season === '' ? null : parseInt(season),
                 description: description,
                 tvdb_id: tvdbId || null,
+                is_batch: Boolean(window.currentTorrent && window.currentTorrent.is_batch),
                 tags: JSON.stringify(window.currentTags),
+                reset_description_override: !window.descriptionOverrideActive,
+                reset_tags_override: !window.tagsOverrideActive,
                 rename_mapping: JSON.stringify(renameMapping)
             })
         });

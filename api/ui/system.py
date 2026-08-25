@@ -205,8 +205,10 @@ class QBTestForm(BaseModel):
     qbittorrent_password: str
 
 # ------------------------------------------------------------
-# Comprueba que Kitsunarr puede iniciar sesión en qBittorrent con
-# las credenciales indicadas o ya guardadas.
+# Comprueba credenciales qB indicadas o enmascaradas y devuelve success/error.
+# Descifra el password guardado en una Session corta y fuerza un login WebAPI real,
+# sin aceptar una cookie cacheada como test de conectividad. Hace red, puede rotar
+# el único slot qB y depende de qbittorrent_login/decrypt_secret.
 # ------------------------------------------------------------
 @router.post("/qbittorrent/test")
 async def test_qbittorrent(data: QBTestForm):
@@ -218,7 +220,12 @@ async def test_qbittorrent(data: QBTestForm):
             if sys_conf and sys_conf.qbittorrent_password:
                 pw = decrypt_secret(sys_conf.qbittorrent_password)
 
-    success = await qbittorrent_login(data.qbittorrent_url, data.qbittorrent_user, pw)
+    success = await qbittorrent_login(
+        data.qbittorrent_url,
+        data.qbittorrent_user,
+        pw,
+        force_refresh=True,
+    )
     if success is not None:
         return {"success": True}
     return {"success": False, "error": "Credenciales inválidas o qBittorrent inaccesible."}
@@ -233,8 +240,10 @@ class QBConfigForm(BaseModel):
     qbittorrent_password: str
 
 # ------------------------------------------------------------
-# Guarda la conexión de qBittorrent para mostrar progreso, subida,
-# ratio y estado de torrents vinculados.
+# Guarda URL/usuario/password qB y devuelve success/error. Escribe una transacción
+# corta, preserva password enmascarada e invalida después la sesión WebAPI O(1)
+# para que el próximo acceso use la configuración confirmada. Depende de cifrado,
+# Session e invalidate_qbittorrent_session; fallos DB/lock se propagan.
 # ------------------------------------------------------------
 @router.post("/qbittorrent")
 async def save_qbittorrent(data: QBConfigForm):
@@ -249,8 +258,12 @@ async def save_qbittorrent(data: QBConfigForm):
             config.qbittorrent_password = encrypt_secret(data.qbittorrent_password)
 
         session.commit()
-        logger.info("💾 Configuración de qBittorrent actualizada exitosamente.")
-        return {"success": True}
+
+    from services.torrent.qbittorrent import invalidate_qbittorrent_session
+
+    await invalidate_qbittorrent_session()
+    logger.info("💾 Configuración de qBittorrent actualizada exitosamente.")
+    return {"success": True}
 
 # ------------------------------------------------------------
 # Datos de TheTVDB que permiten activar o desactivar el enriquecido

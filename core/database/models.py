@@ -1,6 +1,24 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from sqlmodel import Field, Relationship, SQLModel
+
+
+# ------------------------------------------------------------
+# Devuelve el instante UTC actual sin tzinfo para columnas SQLite legacy.
+# No recibe entradas ni tiene efectos/I/O, no lanza errores esperados y depende
+# de datetime aware para evitar datetime.utcnow(), deprecado desde Python 3.12.
+# ------------------------------------------------------------
+def _utcnow_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# ------------------------------------------------------------
+# Devuelve el instante UTC actual como ISO naive para campos de texto legacy.
+# No recibe entradas ni altera estado, no lanza errores esperados y depende de
+# _utcnow_naive para compartir la convención temporal usada por SQLite.
+# ------------------------------------------------------------
+def _utcnow_naive_iso() -> str:
+    return _utcnow_naive().isoformat()
 
 # ------------------------------------------------------------
 # Configuración maestra de Kitsunarr: administrador, API key propia,
@@ -120,7 +138,7 @@ class TVDBCache(SQLModel, table=True):
     status: Optional[str] = None
     seasons_data: Optional[str] = None
     is_full_record: bool = False
-    last_updated: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    last_updated: str = Field(default_factory=_utcnow_naive_iso)
     
     torrents: List["TorrentCache"] = Relationship(back_populates="tvdb_series")
     candidates: List["TorrentCache"] = Relationship(back_populates="candidate_for", link_model=TorrentTVDBCandidates)
@@ -128,22 +146,33 @@ class TVDBCache(SQLModel, table=True):
     episodes: List["TVDBEpisodes"] = Relationship(back_populates="tvdb_show")
 
 # ------------------------------------------------------------
-# Ficha local de torrent que Kitsunarr obtiene de los trackers y va
-# enriqueciendo con IA, TVDB, archivos, tags y telemetría qBittorrent.
+# Ficha local de torrent con snapshot remoto versionado, frescura, capturas y
+# archivos. Separa overrides del usuario, swarm del tracker y telemetría viva
+# de qBittorrent, además del enriquecimiento IA/TVDB usado por Sonarr.
 # ------------------------------------------------------------
 class TorrentCache(SQLModel, table=True):
     guid: str = Field(primary_key=True)
     source_guid: Optional[str] = Field(default=None, index=True)
     info_hash: Optional[str] = Field(default=None, index=True)
+    tracker_title: Optional[str] = None
     fansub_name: Optional[str] = None
     original_title: str
     enriched_title: str
     description: Optional[str] = None
+    description_override: Optional[str] = None
     poster_url: Optional[str] = None
-    size_bytes: int = 0
+    forum_url: Optional[str] = None
+    screenshots_json: Optional[str] = None
+    tracker_metadata_json: Optional[str] = None
+    file_entries_json: Optional[str] = None
+    size_bytes: Optional[int] = None
     indexer: Optional[str] = "unionfansub"
     download_url: Optional[str] = None
-    pub_date: Optional[str] = None
+    published_at: Optional[datetime] = Field(default=None, index=True)
+    first_seen_at: datetime = Field(default_factory=_utcnow_naive)
+    last_scraped_at: Optional[datetime] = Field(default=None, index=True)
+    scrape_revision: int = Field(default=0)
+    tracker_freeleech: Optional[bool] = None
     freeleech_until: Optional[datetime] = None
     ai_translated_title: Optional[str] = None
     parsed_season: Optional[int] = Field(default=None, index=True)
@@ -151,6 +180,9 @@ class TorrentCache(SQLModel, table=True):
     raw_filenames: Optional[str] = None
     rename_mapping: Optional[str] = None
     tags: Optional[str] = None
+    tags_override: Optional[str] = None
+    tracker_seeders: Optional[int] = None
+    tracker_leechers: Optional[int] = None
     
     ai_status: str = "Pendiente"
     tvdb_id: Optional[str] = Field(default=None, foreign_key="tvdbcache.tvdb_id", index=True)
