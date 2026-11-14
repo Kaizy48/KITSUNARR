@@ -1694,10 +1694,12 @@ class UnionFansubIndexer(BaseIndexer):
 
     # ------------------------------------------------------------
     # Descarga el metainfo crudo de un GUID numérico probando las variantes
-    # torrent= e id= de Union Fansub de forma independiente. Recibe GUID/cookie,
-    # devuelve bytes bencode válidos, hace peticiones HTTPS y crea/cierra un
-    # AsyncClient; no toca DB. Continúa tras HTTP/transporte/payload inválido y
-    # termina con TorrentDownloadError sin secretos; depende de los dos helpers.
+    # torrent= e id= de Union Fansub de forma independiente. torrent= lleva
+    # aviso=1, que confirma el aviso de bienvenida: sin él, esa variante
+    # redirige siempre a aviso.php. Recibe GUID/cookie, devuelve bytes bencode
+    # válidos, hace peticiones HTTPS y crea/cierra un AsyncClient; no toca DB.
+    # Continúa tras HTTP/transporte/payload inválido y termina con
+    # TorrentDownloadError sin secretos; depende de los dos helpers.
     # ------------------------------------------------------------
     async def download_torrent(self, guid: str, cookie_string: str) -> bytes:
         source_guid = str(guid or "").strip()
@@ -1711,7 +1713,7 @@ class UnionFansubIndexer(BaseIndexer):
         headers["Sec-Fetch-Site"] = "same-origin"
 
         candidates = (
-            ("torrent", f"https://torrent.unionfansub.com/download.php?torrent={source_guid}"),
+            ("torrent", f"https://torrent.unionfansub.com/download.php?torrent={source_guid}&aviso=1"),
             ("id", f"https://torrent.unionfansub.com/download.php?id={source_guid}"),
         )
         diagnostics = []
