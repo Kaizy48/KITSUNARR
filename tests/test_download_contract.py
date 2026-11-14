@@ -193,7 +193,7 @@ class UnionFansubTorrentDownloadTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result, torrent_bytes)
-        self.assertEqual(requested_queries, ["torrent=12714", "id=12714"])
+        self.assertEqual(requested_queries, ["torrent=12714&aviso=1", "id=12714"])
 
     # ------------------------------------------------------------
     # Simula un redirect externo en la primera variante y un fallback válido, y
